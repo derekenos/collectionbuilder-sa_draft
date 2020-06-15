@@ -24,8 +24,6 @@ $ENV_CONFIG_FILENAMES_MAP = {
 # Helper Functions
 ###############################################################################
 
-$collection_name_to_index_name = ->(s) { s.downcase.split(" ").join("_") }
-
 $ensure_dir_exists = ->(dir) { if !Dir.exists?(dir) then Dir.mkdir(dir) end }
 
 def load_config env = :DEVELOPMENT
@@ -214,6 +212,7 @@ task :generate_es_bulk_data do
   $ensure_dir_exists.call output_dir
   output_path = File.join([output_dir, $ES_BULK_DATA_FILENAME])
   output_file = File.open(output_path, mode: "w")
+  index_name = config[:elasticsearch_index]
   num_items = 0
   config[:metadata].each do |item|
     # Remove any fields with an empty value.
@@ -234,7 +233,6 @@ task :generate_es_bulk_data do
 
     # Write the action_and_meta_data line.
     doc_id = item["objectid"]
-    index_name = $collection_name_to_index_name.call(item["digital_collection"])
     output_file.write("{\"index\": {\"_index\": \"#{index_name}\", \"_id\": \"#{doc_id}\"}}\n")
 
     # Write the source line.
