@@ -186,7 +186,7 @@ task :extract_pdf_text do
   # Extract the text.
   num_items = 0
   Dir.glob(File.join([config[:objects_dir], "*.pdf"])).each do |filename|
-    output_filename = File.join([output_dir, "#{File.basename filename}.text"])
+    output_filename = File.join([output_dir, "#{File.basename filename}.txt"])
     system("pdftotext -enc UTF-8 -eol unix -nopgbrk #{filename} #{output_filename}")
     num_items += 1
   end
@@ -226,7 +226,7 @@ task :generate_es_bulk_data do
       end
     end
 
-    item_text_path = File.join([config[:extracted_pdf_text_dir], "#{item["filename"]}.text"])
+    item_text_path = File.join([config[:extracted_pdf_text_dir], "#{item["filename"]}.txt"])
     if File::exists? item_text_path
       full_text = File.read(item_text_path, mode: "r", encoding: "utf-8")
       item["full_text"] = full_text
