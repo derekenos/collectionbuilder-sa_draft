@@ -523,7 +523,7 @@ task :sync_objects, [ :aws_profile ] do |t, args |
   # Derive the S3 endpoint from the URL, with the expectation that it has the
   # format: <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com
   # where the endpoint will be: <region>.digitaloceanspaces.com
-  REGEX = /^https?:\/\/(?<bucket>\w+)\.(?<region>\w+)\.cdn.digitaloceanspaces.com$/
+  REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com$/
   match = REGEX.match s3_url
   if !match
     puts "digital-objects URL \"#{s3_url}\" does not match the expected "\
@@ -545,12 +545,21 @@ task :sync_objects, [ :aws_profile ] do |t, args |
   # Iterate over the object files and put each into the remote bucket.
   num_objects = 0
   [ objects_dir, thumb_image_dir, small_image_dir ].each do |dir|
+    # Enforce a requirement by the subsequent object key generation code that each
+    # enumerated directory path starts with objects_dir.
+    if !dir.start_with? objects_dir
+      raise "Expected dir to start with \"#{objects_dir}\", got: \"#{dir}\""
+    end
+
     Dir.glob(File.join([dir, '*'])).each do |filename|
       # Ignore subdirectories.
       if File.directory? filename
         next
       end
-      key = File.basename(filename)
+
+      # Generate an object key that reflects the file location relative to objects_dir.
+      key = "#{dir[objects_dir.length..]}/#{File.basename(filename)}".delete_prefix "/"
+
       puts "Uploading \"#{filename}\" as \"#{key}\"..."
       s3_client.put_object(
         bucket: bucket,
@@ -558,6 +567,7 @@ task :sync_objects, [ :aws_profile ] do |t, args |
         body: File.open(filename, 'rb'),
         acl: 'public-read'
       )
+
       num_objects += 1
     end
   end
