@@ -26,6 +26,28 @@ $ENV_CONFIG_FILENAMES_MAP = {
 
 $ensure_dir_exists = ->(dir) { if !Dir.exists?(dir) then Dir.mkdir(dir) end }
 
+def prompt_user_for_confirmation message
+  response = nil
+  while true do
+    # Use print instead of puts to avoid trailing \n.
+    print "#{message} (Y/n): "
+    $stdout.flush
+    response =
+      case STDIN.gets.chomp.downcase
+      when "", "y"
+        true
+      when "n"
+        false
+      else
+        nil
+      end
+    if response != nil
+      return response
+    end
+    puts "Please enter \"y\" or \"n\""
+  end
+end
+
 def load_config env = :DEVELOPMENT
   # Read the config files and validate and return the values required by rake
   # tasks.
@@ -404,6 +426,11 @@ task :delete_es_index  do
   req = Net::HTTP.new(config[:elasticsearch_host], config[:elasticsearch_port])
   if config[:elasticsearch_protocol] == 'https'
     req.use_ssl = true
+  end
+
+  res = prompt_user_for_confirmation "Really delete index \"#{config[:elasticsearch_index]}\"?"
+  if res == false
+    next
   end
 
   res = req.send_request('DELETE', "/#{config[:elasticsearch_index]}")
