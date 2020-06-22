@@ -108,12 +108,13 @@ end
 ###############################################################################
 
 desc "Generate derivative image files from collection objects"
-task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing] do |t, args|
+task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing, :im_executable] do |t, args|
   args.with_defaults(
     :thumbs_size => "300x300",
     :small_size => "800x800",
     :density => "300",
-    :missing => "true"
+    :missing => "true",
+    :im_executable => "magick",
   )
 
   config = load_config
@@ -144,11 +145,11 @@ task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing] do |
       next
     end
 
-    # Define the file-type-specific magick command prefix.
-    magick_cmd =
+    # Define the file-type-specific ImageMagick command prefix.
+    cmd_prefix =
       case file_type
-      when :image then "magick #{filename}"
-      when :pdf then "magick -density #{args.density} #{filename}[0]"
+      when :image then "#{args.im_executable} #{filename}"
+      when :pdf then "#{args.im_executable} -density #{args.density} #{filename}[0]"
       end
 
     # Get the lowercase filename without any leading path and extension.
@@ -158,14 +159,14 @@ task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing] do |
     thumb_filename=File.join([thumb_image_dir, "#{base_filename}_th.jpg"])
     if args.missing == 'false' or !File.exists?(thumb_filename)
       puts "Creating: #{thumb_filename}";
-      system("#{magick_cmd} -resize #{args.thumbs_size} -flatten #{thumb_filename}")
+      system("#{cmd_prefix} -resize #{args.thumbs_size} -flatten #{thumb_filename}")
     end
 
     # Generate the small image.
     small_filename = File.join([small_image_dir, "#{base_filename}_sm.jpg"])
     if args.missing == 'false' or !File.exists?(small_filename)
       puts "Creating: #{small_filename}";
-      system("#{magick_cmd} -resize #{args.small_size} -flatten #{small_filename}")
+      system("#{cmd_prefix} -resize #{args.small_size} -flatten #{small_filename}")
     end
   end
 end
