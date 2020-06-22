@@ -46,6 +46,8 @@ The rake tasks that we'll be using have the following dependencies:
 ##### ImageMagick 7
 ImageMagick is used by `generate-derivatives` to create small and thumbnail images from `.jpg` and `.pdf` (with Ghostscript) collection object files.
 
+_Note that if you already have ImageMagick 6 installed and want to use that, see the note about doing so in the `Generate Derivatives` section._
+
 Download the appropriate executable for your operating system here: https://imagemagick.org/script/download.php
 
 The scripts expect this to be executable via the command `magick`.
@@ -160,12 +162,13 @@ This task automatically creates `/small` and `/thumbs` subdirectories as necessa
 
 The following configuration options are available:
 
-| option | description |default value |
+| option | description | default value |
 | --- | --- | --- |
 | thumbs_size | the dimensions of the generated thumbnail images | 300x300 |
 | small_size | the dimensions of the generated small images | 800x800 |
 | density | the pixel density used to generate PDF thumbnails | 300 |
 | missing | whether to only generate derivatives that don't already exist | true |
+| im_executable | ImageMagick executable name | magick |
 
 You can configure any or all of these options by specifying them in the rake command like so:
 ```
@@ -180,6 +183,14 @@ For example, if you only wanted to set `density` to `70`, you can do:
 ```
 rake generate_derivatives[,,70]
 ```
+
+#### Using ImageMagick 6 (tested with `v6.9.7`)
+
+If using ImageMagick 6, you need to set the `im_executable` configuration option to `convert`:
+```
+rake generate_derivatives[,,,,convert]
+```
+
 
 ### 4. Start Elasticsearch
 
@@ -274,9 +285,3 @@ rake sync_objects[collectionbuilder]
 ```
 jekyll s -H 0.0.0.0 --config _config.yml,_config.production_preview.yml
 ```
-
-
-
-
-
-
