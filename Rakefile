@@ -26,6 +26,28 @@ $ENV_CONFIG_FILENAMES_MAP = {
 
 $ensure_dir_exists = ->(dir) { if !Dir.exists?(dir) then Dir.mkdir(dir) end }
 
+def prompt_user_for_confirmation message
+  response = nil
+  while true do
+    # Use print instead of puts to avoid trailing \n.
+    print "#{message} (Y/n): "
+    $stdout.flush
+    response =
+      case STDIN.gets.chomp.downcase
+      when "", "y"
+        true
+      when "n"
+        false
+      else
+        nil
+      end
+    if response != nil
+      return response
+    end
+    puts "Please enter \"y\" or \"n\""
+  end
+end
+
 def load_config env = :DEVELOPMENT
   # Read the config files and validate and return the values required by rake
   # tasks.
@@ -387,6 +409,38 @@ task :create_es_index  do
     data = JSON.load(res.body)
     if data['error']['type'] == 'resource_already_exists_exception'
       puts "Elasticsearch index (#{config[:elasticsearch_index]}) already exists"
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
+# delete_es_index
+###############################################################################
+
+desc "Delete the Elasticsearch index"
+task :delete_es_index  do
+  config = load_config
+  req = Net::HTTP.new(config[:elasticsearch_host], config[:elasticsearch_port])
+  if config[:elasticsearch_protocol] == 'https'
+    req.use_ssl = true
+  end
+
+  res = prompt_user_for_confirmation "Really delete index \"#{config[:elasticsearch_index]}\"?"
+  if res == false
+    next
+  end
+
+  res = req.send_request('DELETE', "/#{config[:elasticsearch_index]}")
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch index: #{config[:elasticsearch_index]}"
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'index_not_found_exception'
+      puts "Delete failed. Elasticsearch index (#{config[:elasticsearch_index]}) does not exist."
     else
       raise res.body
     end

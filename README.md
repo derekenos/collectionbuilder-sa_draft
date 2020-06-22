@@ -37,6 +37,7 @@ The rake tasks that we'll be using have the following dependencies:
 | extract_pdf_text | xpdf | |
 | generate_es_bulk_data | |
 | create_es_index | | Elasticsearch |
+| delete_es_index | | Elasticsearch |
 | load_es_bulk_data | | Elasticsearch |
 | sync_objects | | Digital Ocean Space |
 
@@ -285,3 +286,16 @@ rake sync_objects[collectionbuilder]
 ```
 jekyll s -H 0.0.0.0 --config _config.yml,_config.production_preview.yml
 ```
+
+
+## Updating `data/config-search.csv` For An Existing Elasticsearch Index
+
+The search configuration in `config-search.csv` is used by the `generate_es_index_settings` rake task to generate an Elasticsearch index settings file which the `create_es_index` rake task then uses to create a new Elasticsearch index. If you need to make changes to `config-search.csv` after the index has already been created, you will need to synchronize these changes to Elasticsearch in order for the new configuration to take effect.
+
+While there are a number of ways to achieve this (see: [Index Aliases and Zero Downtime](https://www.elastic.co/guide/en/elasticsearch/guide/current/index-aliases.html#index-aliases)), the easiest is to:
+
+1. Delete the existing index by executing the `delete_es_index` rake task
+
+2. Execute the `generate_es_index_settings` and `create_es_index` rake tasks to create a new index using the updated `config-search.csv` configuration
+
+3. Execute the `load_es_bulk_data` rake task to load the documents into the new index
