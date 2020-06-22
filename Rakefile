@@ -395,6 +395,33 @@ end
 
 
 ###############################################################################
+# delete_es_index
+###############################################################################
+
+desc "Delete the Elasticsearch index"
+task :delete_es_index  do
+  config = load_config
+  req = Net::HTTP.new(config[:elasticsearch_host], config[:elasticsearch_port])
+  if config[:elasticsearch_protocol] == 'https'
+    req.use_ssl = true
+  end
+
+  res = req.send_request('DELETE', "/#{config[:elasticsearch_index]}")
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch index: #{config[:elasticsearch_index]}"
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'index_not_found_exception'
+      puts "Delete failed. Elasticsearch index (#{config[:elasticsearch_index]}) does not exist."
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
 # load_es_bulk_data
 ###############################################################################
 
