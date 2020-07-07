@@ -11,6 +11,7 @@ require 'aws-sdk-s3'
 # Constants
 ###############################################################################
 
+$ES_CREDENTIALS_PATH = File.join [Dir.home, ".elasticsearch", "credentials"]
 $ES_BULK_DATA_FILENAME = 'es_bulk_data.jsonl'
 $ES_INDEX_SETTINGS_FILENAME = 'es_index_settings.json'
 $SEARCH_CONFIG_PATH = File.join(['_data', 'config-search.csv'])
@@ -96,6 +97,18 @@ def load_config env = :DEVELOPMENT
     :elasticsearch_port => config['elasticsearch-port'],
     :elasticsearch_index => config['elasticsearch-index'],
   }
+end
+
+def get_es_user_credentials user = "admin"
+  # Return the username and password for the specified Elasticsearch user.
+  creds = YAML.load_file $ES_CREDENTIALS_PATH
+  if !creds.include? "users"
+    raise "\"users\" key not found in: #{$ES_CREDENTIALS_PATH}"
+  elsif !creds["users"].include? user
+    raise "No credentials found for user: \"#{user}\""
+  else
+    return creds["users"][user]
+  end
 end
 
 def elasticsearch_ready config
@@ -389,19 +402,31 @@ end
 ###############################################################################
 
 desc "Create the Elasticsearch index"
-task :create_es_index  do
-  config = load_config
-  req = Net::HTTP.new(config[:elasticsearch_host], config[:elasticsearch_port])
-  if config[:elasticsearch_protocol] == 'https'
-    req.use_ssl = true
-  end
-  body = File.open(File.join([config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read
-  res = req.send_request(
-    'PUT',
-    "/#{config[:elasticsearch_index]}",
-    body,
-    { 'Content-Type' => 'application/json' }
+task :create_es_index, [:es_user] do |t, args|
+  args.with_defaults(
+    :es_user => nil,
   )
+
+  config = load_config
+
+  protocol = config[:elasticsearch_protocol]
+  host = config[:elasticsearch_host]
+  port = config[:elasticsearch_port]
+  path = "/#{config[:elasticsearch_index]}"
+  req = Net::HTTP::Put.new(path, initheader = { 'Content-Type' => 'application/json' })
+
+  # If an Elasticsearch user was specified, use their credentials to configure
+  # basic auth.
+  if args.es_user != nil
+    es_creds = get_es_user_credentials args.es_user
+    req.basic_auth es_creds["username"], es_creds["password"]
+  end
+
+  req.body = File.open(File.join([config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read
+
+  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
+    http.request(req)
+  end
 
   if res.code == '200'
     puts "Created Elasticsearch index: #{config[:elasticsearch_index]}"
