@@ -446,19 +446,34 @@ end
 ###############################################################################
 
 desc "Delete the Elasticsearch index"
-task :delete_es_index  do
+task :delete_es_index, [:es_user] do |t, args|
+  args.with_defaults(
+    :es_user => nil,
+  )
+
   config = load_config
-  req = Net::HTTP.new(config[:elasticsearch_host], config[:elasticsearch_port])
-  if config[:elasticsearch_protocol] == 'https'
-    req.use_ssl = true
-  end
 
   res = prompt_user_for_confirmation "Really delete index \"#{config[:elasticsearch_index]}\"?"
   if res == false
     next
   end
 
-  res = req.send_request('DELETE', "/#{config[:elasticsearch_index]}")
+  protocol = config[:elasticsearch_protocol]
+  host = config[:elasticsearch_host]
+  port = config[:elasticsearch_port]
+  path = "/#{config[:elasticsearch_index]}"
+  req = Net::HTTP::Delete.new(path)
+
+  # If an Elasticsearch user was specified, use their credentials to configure
+  # basic auth.
+  if args.es_user != nil
+    es_creds = get_es_user_credentials args.es_user
+    req.basic_auth es_creds["username"], es_creds["password"]
+  end
+
+  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
+    http.request(req)
+  end
 
   if res.code == '200'
     puts "Deleted Elasticsearch index: #{config[:elasticsearch_index]}"
