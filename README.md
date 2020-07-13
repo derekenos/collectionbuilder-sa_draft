@@ -247,6 +247,63 @@ bundle exec jekyll s -H 0.0.0.0
 ```
 
 
+## Deploy a Production Elasticsearch Instance on a Digital Ocean Droplet
+
+This section will describe how to get Elasticsearch up and running on a Digital Ocean Droplet using our preconfigured, custom disk image.
+
+1. Import our custom Elasticsearch image via the Digital Ocean web console by navigating to:
+```
+Images -> Custom Images -> Import via URL
+```
+and entering the URL: http://collectionbuilder-sa-demo.s3-website-us-east-1.amazonaws.com/collectionbuilder_elasticsearch-disk001.vmdk
+
+![do_custom_image_import](https://user-images.githubusercontent.com/585182/87325500-8678f500-c4ff-11ea-9a70-e65b437b4c20.gif)
+
+
+2. Once the image is available within your account, click on `More -> Start a droplet`
+
+3. Once the Droplet is running, navigate to:
+```
+Networking -> Firewalls -> Create Firewall
+```
+Give the firewall a name and add the rules as indicated in the below screenshot:
+
+![Screenshot from 2020-07-13 12-05-32](https://user-images.githubusercontent.com/585182/87326758-2c792f00-c501-11ea-9a82-45977a8c7582.png)
+
+- The `HTTP TCP 80` rule allows the `certbot` SSL certificate application that's we'll soon run to verify that we own this machine. We'll delete this rule after the certificate process is complete.
+
+- The `Custom TCP 9200` rule enables external access to the Elasticsearch instance.
+
+In the `Apply to Droplets` section, specify the name of the previously-created Elasticsearch Droplet and click `Create Firewall`
+
+4. Generate your Elasticsearch passwords
+
+On the detail page for your Droplet, click on `Console` to open a terminal window.
+At the `login:` prompt, type `ubuntu` and hit `Enter`
+At the `Password:` prompt type `password` and hit `Enter`
+To automatically generate your Elasticsearch built-in-user password, type the following command, and hit `Enter`:
+```
+sudo /usr/share/elasticsearch/bin/elasticsearch-setup-passwords auto
+```
+When prompted with `[sudo] password for ubuntu`, type `password` again and hit `Enter`
+
+_TODO - does it ask to confirm yes?_
+
+Copy the username and passwords that are printed to the screen and keep them in a safe place. You will need the `elastic` user credentials for creating and manipulating the search index on this machine via the `Rakefile` tasks.
+
+5. Generate an SSL certificate for HTTPS communication
+
+In order to request a free SSL certificate from Let's Encrypt, you first need to ensure that your Elasticsearch server is accessible via some registered web domain. To do this, you will either need to register a new domain, or create a subdomain of and existing root, you'll need to create a `A`-type DNS record that points to the IP address of your Droplet.
+
+_TODO - is DNS admin outside the scope of this document?_
+
+_TODO - run the generation script_
+
+6. Delete the `HTTP` firewall rule
+
+_TODO_
+
+
 ## Setting Up Your Local Production-Preview Environment
 
 The **Preview-Production** environment allows you to configure the local development web server to access the collection objects at a remote source (e.g. Digital Ocean Space) instead of from the local `objects/` directory. This helps to ensure that your remote storage is properly configured before deploying the production site.
