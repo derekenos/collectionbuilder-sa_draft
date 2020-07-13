@@ -15,8 +15,8 @@ digital-objects: /demo/moscon/objects
 source-code: https://github.com/CollectionBuilder
 
 # Elasticsearch cluster host
-elasticsearch-protocol: https
-elasticsearch-host: cb-elasticsearch.derekenos.com
+elasticsearch-protocol: http
+elasticsearch-host: 0.0.0.0
 elasticsearch-port: 9200
 elasticsearch-index: moscon_programs_collection
 
