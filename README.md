@@ -276,6 +276,9 @@ Give the firewall a name and add the rules as indicated in the below screenshot:
 
 In the `Apply to Droplets` section, specify the name of the previously-created Elasticsearch Droplet and click `Create Firewall`
 
+3. Change the `root` and `ubuntu` user passwords
+_TODO_
+
 4. Generate your Elasticsearch passwords
 
 On the detail page for your Droplet, click on `Console` to open a terminal window.
@@ -290,6 +293,8 @@ When prompted with `[sudo] password for ubuntu`, type `password` again and hit `
 _TODO - does it ask to confirm yes?_
 
 Copy the username and passwords that are printed to the screen and keep them in a safe place. You will need the `elastic` user credentials for creating and manipulating the search index on this machine via the `Rakefile` tasks.
+
+_TODO - document how to create the `.../.elasticsearch/credentials` file_
 
 5. Generate an SSL certificate for HTTPS communication
 
