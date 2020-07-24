@@ -227,18 +227,51 @@ rake generate_es_index_settings
 #### 5.4 Create the Search Index
 Use the `create_es_index` rake task to create the Elasticsearch index from the index settings file.
 
-Usage:
+Local development usage:
 ```
 rake create_es_index
 ```
 
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+
+```
+rake create_es_index[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+
+```
+rake create_es_index[admin]
+```
+
+When you specify a user profile name, the task assumes that you want to target the production Elasticsearch instance and will read the connection information from `_config.production.yml` and the username / password for the specified profile from your Elasticsearch credentials file.
+
+See: [Creating Your Local Elasticsearch Credentials File](#creating-your-local-elasticsearch-credentials-file)
+
+
 #### 5.5 Load Data into the Search Index
 Use the `load_es_bulk_data` rake task to load the collection data into the Elasticsearch index.
 
-Usage:
+Local development usage:
 ```
 rake load_es_bulk_data
 ```
+
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+
+```
+rake load_es_bulk_data[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+
+```
+rake load_es_bulk_data[admin]
+```
+
+When you specify a user profile name, the task assumes that you want to target the production Elasticsearch instance and will read the connection information from `_config.production.yml` and the username / password for the specified profile from your Elasticsearch credentials file.
+
+See: [Creating Your Local Elasticsearch Credentials File](#creating-your-local-elasticsearch-credentials-file)
 
 
 ### 6. Start the Development Server
@@ -339,15 +372,10 @@ This section will describe how to get Elasticsearch up and running on a Digital 
     sudo /usr/share/elasticsearch/bin/elasticsearch-setup-passwords auto
     ```
 
-    The script will display the name and newly-generated password for each of the built-in Elasticsearch users - copy these down and save them in a safe place. You will be using the `elastic` user credentials to later administer the server.
+    The script will display the name and newly-generated password for each of the built-in Elasticsearch users - copy these down and save them in a safe place. You will be using the `elastic` user credentials to later administer the server. See: [Creating Your Local Elasticsearch Credentials File](#creating-your-local-elasticsearch-credentials-file)
 
 
-8. Create your local Elasticsearch credentials file
-
-    _TODO - document how to create the `.../.elasticsearch/credentials` file that required by the [get_es_user_credentials](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/master/Rakefile#L102-L112) Rakefile function_
-
-
-9. Change the `ubuntu` user password
+8. Change the `ubuntu` user password
 
     Every droplet that someone creates from the provided custom disk image is going to have the same default `ubuntu` user password of `password`. For better security, you should change this to your own, unique password.
 
@@ -372,6 +400,31 @@ This section will describe how to get Elasticsearch up and running on a Digital 
     Retype new password: <enter-your-new-password>
     passwd: password updated successfully
     ```
+
+
+## Creating Your Local Elasticsearch Credentials File<a id="creating-your-local-elasticsearch-credentials-file"></a>
+
+After generating passwords for your built-in Elasticsearch users, the ES-related rake tasks will need access to these usernames / passwords (namely that of the `elastic` user) in order to communicate with the server. This is done by creating a local Elasticsearch credentials file.
+
+By default, the tasks will look for this file at: `<user-home>/.elasticsearch/credentials`. If you want to change this location, you can do so [here](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/master/Rakefile#L14).
+
+This credentials file must formatted as YAML as follows:
+
+```
+users:
+  <profile-name>:
+    username: <elasticsearch-username>
+    password: <elasticsearch-password>
+```
+
+Here's a template that works with the other examples in this documentation, requiring only that you fill in the `elastic` user password:
+
+```
+users:
+  admin:
+    username: elastic
+    password: <password>
+```
 
 
 ## Setting Up Your Local Production-Preview Environment
@@ -421,7 +474,7 @@ The search configuration in `config-search.csv` is used by the `generate_es_inde
 
 While there are a number of ways to achieve this (see: [Index Aliases and Zero Downtime](https://www.elastic.co/guide/en/elasticsearch/guide/current/index-aliases.html#index-aliases)), the easiest is to:
 
-1. Delete the existing index by executing the `delete_es_index` rake task
+1. Delete the existing index by executing the `delete_es_index` rake task. See `create_es_index` for how to specify a user profile name if you need to target your production Elasticsearch instance.
 
 2. Execute the `generate_es_index_settings` and `create_es_index` rake tasks to create a new index using the updated `config-search.csv` configuration
 

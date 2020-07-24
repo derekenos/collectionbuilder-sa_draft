@@ -52,20 +52,19 @@ end
 def load_config env = :DEVELOPMENT
   # Read the config files and validate and return the values required by rake
   # tasks.
-  filenames = $ENV_CONFIG_FILENAMES_MAP[env]
-  config = {}
-  filenames.each do |filename|
-    config.update(YAML.load_file filename)
-  end
+
+  # Get the development config to use for all local filesystem-based
+  # operations.
+  dev_config = YAML.load_file $ENV_CONFIG_FILENAMES_MAP[:DEVELOPMENT][0]
 
   # Read the objects path.
-  objects_dir = config['digital-objects']
+  objects_dir = dev_config['digital-objects']
   if !objects_dir
     raise "digital-objects must be defined in _config.yml"
   end
   # Strip out any leading baseurl value.
-  if objects_dir.start_with? config['baseurl']
-    objects_dir = objects_dir[config['baseurl'].length..-1]
+  if objects_dir.start_with? dev_config['baseurl']
+    objects_dir = objects_dir[dev_config['baseurl'].length..-1]
     # Trim any leading slash from the objects directory
     if objects_dir.start_with? '/'
       objects_dir = objects_dir[1..-1]
@@ -75,7 +74,7 @@ def load_config env = :DEVELOPMENT
   objects_dir = objects_dir.chomp('/')
 
   # Load the collection metadata.
-  metadata_name = config['metadata']
+  metadata_name = dev_config['metadata']
   if !metadata_name
     raise "metadata must be defined in _config.yml"
   end
@@ -83,6 +82,13 @@ def load_config env = :DEVELOPMENT
 
   # Load the search configuration.
   search_config = CSV.parse(File.read($SEARCH_CONFIG_PATH), headers: true)
+
+  # Get the config as defined by the env argument.
+  filenames = $ENV_CONFIG_FILENAMES_MAP[env]
+  config = {}
+  filenames.each do |filename|
+    config.update(YAML.load_file filename)
+  end
 
   return {
     :objects_dir => objects_dir,
@@ -407,7 +413,9 @@ task :create_es_index, [:es_user] do |t, args|
     :es_user => nil,
   )
 
-  config = load_config
+  # If es_user was specified, target the production ES server.
+  env = if args.es_user != nil then :PRODUCTION else :DEVELOPMENT end
+  config = load_config env
 
   protocol = config[:elasticsearch_protocol]
   host = config[:elasticsearch_host]
@@ -451,7 +459,9 @@ task :delete_es_index, [:es_user] do |t, args|
     :es_user => nil,
   )
 
-  config = load_config
+  # If es_user was specified, target the production ES server.
+  env = if args.es_user != nil then :PRODUCTION else :DEVELOPMENT end
+  config = load_config env
 
   res = prompt_user_for_confirmation "Really delete index \"#{config[:elasticsearch_index]}\"?"
   if res == false
@@ -498,7 +508,9 @@ task :load_es_bulk_data, [:es_user] do |t, args|
     :es_user => nil,
   )
 
-  config = load_config
+  # If es_user was specified, target the production ES server.
+  env = if args.es_user != nil then :PRODUCTION else :DEVELOPMENT end
+  config = load_config env
 
   protocol = config[:elasticsearch_protocol]
   host = config[:elasticsearch_host]
