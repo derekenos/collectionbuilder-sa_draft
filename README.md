@@ -227,18 +227,52 @@ rake generate_es_index_settings
 #### 5.4 Create the Search Index
 Use the `create_es_index` rake task to create the Elasticsearch index from the index settings file.
 
-Usage:
+Local development usage:
 ```
 rake create_es_index
 ```
 
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+
+```
+rake create_es_index[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+
+```
+rake create_es_index[admin]
+```
+
+When you specify a user profile name, the task assumes that you want to target the production Elasticsearch instance and will read the connection information from `_config.production.yml` and the username / password for the specified profile from your Elasticsearch credentials file.
+
+See _TODO_ for information on how to create this credentials file.
+
+
 #### 5.5 Load Data into the Search Index
 Use the `load_es_bulk_data` rake task to load the collection data into the Elasticsearch index.
 
-Usage:
+Local development usage:
 ```
 rake load_es_bulk_data
 ```
+
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+
+```
+rake load_es_bulk_data[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+
+```
+rake load_es_bulk_data[admin]
+```
+
+When you specify a user profile name, the task assumes that you want to target the production Elasticsearch instance and will read the connection information from `_config.production.yml` and the username / password for the specified profile from your Elasticsearch credentials file.
+
+See _TODO_ for information on how to create this credentials file.
+
 
 
 ### 6. Start the Development Server
@@ -421,7 +455,7 @@ The search configuration in `config-search.csv` is used by the `generate_es_inde
 
 While there are a number of ways to achieve this (see: [Index Aliases and Zero Downtime](https://www.elastic.co/guide/en/elasticsearch/guide/current/index-aliases.html#index-aliases)), the easiest is to:
 
-1. Delete the existing index by executing the `delete_es_index` rake task
+1. Delete the existing index by executing the `delete_es_index` rake task. See `create_es_index` for how to specify a user profile name if you need to target your production Elasticsearch instance.
 
 2. Execute the `generate_es_index_settings` and `create_es_index` rake tasks to create a new index using the updated `config-search.csv` configuration
 
