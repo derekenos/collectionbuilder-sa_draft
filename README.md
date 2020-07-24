@@ -247,6 +247,133 @@ bundle exec jekyll s -H 0.0.0.0
 ```
 
 
+## Deploy a Production Elasticsearch Instance on a Digital Ocean Droplet
+
+This section will describe how to get Elasticsearch up and running on a Digital Ocean Droplet using our preconfigured, custom disk image.
+
+1. Import our custom Elasticsearch image via the Digital Ocean web console by navigating to:
+
+    ```
+    Images -> Custom Images -> Import via URL
+    ```
+
+    and entering the URL: https://collectionbuilder-sa-demo.s3.amazonaws.com/collectionbuilder-elasticsearch-1-0.vmdk
+
+    ![do_custom_image_import](https://user-images.githubusercontent.com/585182/87325500-8678f500-c4ff-11ea-9a70-e65b437b4c20.gif)
+
+
+2. Once the image is available within your account, click on `More -> Start a droplet`
+
+3. Once the Droplet is running, navigate to:
+
+    ```
+    Networking -> Firewalls -> Create Firewall
+    ```
+    
+    Give the firewall a name and add the rules as depicted in the below screenshot:
+
+    ![Screenshot from 2020-07-13 12-05-32](https://user-images.githubusercontent.com/585182/87326758-2c792f00-c501-11ea-9a82-45977a8c7582.png)
+
+    - The `HTTP TCP 80` rule allows the `certbot` SSL certificate application that we'll soon run to verify that we own this machine. We'll delete this rule after the certificate process is complete.
+
+    - The `Custom TCP 9200` rule enables external access to the Elasticsearch instance.
+
+    In the `Apply to Droplets` section, specify the name of the previously-created Elasticsearch Droplet and click `Create Firewall`
+
+
+4. Generate your SSL certificate
+
+    The Elasticsearch server is configured to use secure communication over HTTPS, which requires an SSL certificate. In order to request a free SSL certificate from Let's Encrypt, you first need to ensure that your Elasticsearch server is accessible via some registered web domain. To do this, you'll need to create a `A`-type DNS record that points some root/sub-domain to the IP address of your Droplet.
+
+    1. Create a DNS record for your Droplet
+        1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
+        2. Take note of the `ipv4` IP address displayed at the top
+        3. However you do this, create a `A` DNS record to associate a root/sub-domain with your Droplet IP address
+    
+    2. Generate the certificate
+        1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
+        2. Click the `Console []` link on the right side
+        3. At the `elastic login:` prompt, type `ubuntu` and hit `ENTER`
+        4. At the `Password:` prompt, type `password` and hit `ENTER`
+        5. Type `sudo ./get-ssl-certificate` and hit `ENTER`, type `password` and hit `ENTER`
+        6. Enter an email address to associate with your certificate
+        7. Type `A` then `ENTER` to agree to the terms of service
+        8. Specify whether you want to share your email address with the EFF
+        9. Enter the name of the root/sub-domain for which you created the `A` record associated with your Droplet IP address
+        10. Restart Elasticsearch so that it will use the new certificate by executing `sudo systemctl restart elasticsearch`
+
+
+5. Check that Elasticsearch is accessible via HTTPS
+
+    1. In a web browser, surf on over to: `https://<the-root/sub-domain-you-created>:9200` and you should see something like this:
+    
+    ![Screenshot from 2020-07-16 16-21-18](https://user-images.githubusercontent.com/585182/87718795-6ad05180-c780-11ea-909e-87f5f6c9ef21.png)
+    
+    It's reporting a `security_exception` because the server is configured to prevent anonymous, public users from accessing things they shouldn't. You'll see a more friendly response at: `https://<the-root/sub-domain-you-created>:9200/_search`
+    
+
+6. Delete the HTTP ingress firewall rule
+
+    The HTTP firewall ingress rule is only required for the initial certificate generation process and should be removed once the certificate is obtained.
+    To do this:
+
+    1. In the Digital Ocean UI, natigate to `Networking -> Firewalls`
+    2. Click on the firewall that you created
+    3. Next to the `HTTP` entry in `Inbound Rules`, click `More` and then `Delete Rule`
+
+
+7. Generate your Elasticsearch passwords
+
+    In order to securely administer your Elasticsearch server, you'll need to generate passwords for the built-in Elasticsearch users.
+
+    If necessary, open a console window:
+
+        1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
+        2. Click the `Console []` link on the right side
+        3. At the `elastic login:` prompt, type `ubuntu` and hit `ENTER`
+        4. At the `Password:` prompt, type `password` and hit `ENTER`
+    
+    Execute the command:
+
+    ```
+    sudo /usr/share/elasticsearch/bin/elasticsearch-setup-passwords auto
+    ```
+
+    The script will display the name and newly-generated password for each of the built-in Elasticsearch users - copy these down and save them in a safe place. You will be using the `elastic` user credentials to later administer the server.
+
+
+8. Create your local Elasticsearch credentials file
+
+    _TODO - document how to create the `.../.elasticsearch/credentials` file that required by the [get_es_user_credentials](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/master/Rakefile#L102-L112) Rakefile function_
+
+
+9. Change the `ubuntu` user password
+
+    Every droplet that someone creates from the provided custom disk image is going to have the same default `ubuntu` user password of `password`. For better security, you should change this to your own, unique password.
+
+    If necessary, open a console window:
+
+        1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
+        2. Click the `Console []` link on the right side
+        3. At the `elastic login:` prompt, type `ubuntu` and hit `ENTER`
+        4. At the `Password:` prompt, type `password` and hit `ENTER`
+
+   Execute the command:
+
+    ```
+    sudo passwd ubuntu 
+    ```
+
+    The flow looks like this:
+
+    ```
+    [sudo] password for ubuntu: <enter-the-current-password-ie-"password">
+    New password: <enter-your-new-password>
+    Retype new password: <enter-your-new-password>
+    passwd: password updated successfully
+    ```
+
+
 ## Setting Up Your Local Production-Preview Environment
 
 The **Preview-Production** environment allows you to configure the local development web server to access the collection objects at a remote source (e.g. Digital Ocean Space) instead of from the local `objects/` directory. This helps to ensure that your remote storage is properly configured before deploying the production site.
