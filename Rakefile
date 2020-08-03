@@ -53,28 +53,23 @@ def load_config env = :DEVELOPMENT
   # Read the config files and validate and return the values required by rake
   # tasks.
 
-  # Get the development config to use for all local filesystem-based
-  # operations.
-  dev_config = YAML.load_file $ENV_CONFIG_FILENAMES_MAP[:DEVELOPMENT][0]
-
-  # Read the objects path.
-  objects_dir = dev_config['digital-objects']
-  if !objects_dir
-    raise "digital-objects must be defined in _config.yml"
+  # Get the config as defined by the env argument.
+  filenames = $ENV_CONFIG_FILENAMES_MAP[env]
+  config = {}
+  filenames.each do |filename|
+    config.update(YAML.load_file filename)
   end
-  # Strip out any leading baseurl value.
-  if objects_dir.start_with? dev_config['baseurl']
-    objects_dir = objects_dir[dev_config['baseurl'].length..-1]
-    # Trim any leading slash from the objects directory
-    if objects_dir.start_with? '/'
-      objects_dir = objects_dir[1..-1]
-    end
+
+  # Read the digital objects location.
+  digital_objects_location = config['digital-objects']
+  if !digital_objects_location
+    raise "digital-objects is not defined in _config*.yml for environment: #{env}"
   end
   # Strip any trailing slash.
-  objects_dir = objects_dir.chomp('/')
+  digital_objects_location.delete_suffix! '/'
 
   # Load the collection metadata.
-  metadata_name = dev_config['metadata']
+  metadata_name = config['metadata']
   if !metadata_name
     raise "metadata must be defined in _config.yml"
   end
@@ -83,19 +78,7 @@ def load_config env = :DEVELOPMENT
   # Load the search configuration.
   search_config = CSV.parse(File.read($SEARCH_CONFIG_PATH), headers: true)
 
-  # Get the config as defined by the env argument.
-  filenames = $ENV_CONFIG_FILENAMES_MAP[env]
-  config = {}
-  filenames.each do |filename|
-    config.update(YAML.load_file filename)
-  end
-
-  return {
-    :objects_dir => objects_dir,
-    :thumb_image_dir => File.join([objects_dir, 'thumbs']),
-    :small_image_dir => File.join([objects_dir, 'small']),
-    :extracted_pdf_text_dir => File.join([objects_dir, 'extracted_text']),
-    :elasticsearch_dir => File.join([objects_dir, 'elasticsearch']),
+  retval = {
     :metadata => metadata,
     :search_config => search_config,
     :elasticsearch_protocol => config['elasticsearch-protocol'],
@@ -103,6 +86,32 @@ def load_config env = :DEVELOPMENT
     :elasticsearch_port => config['elasticsearch-port'],
     :elasticsearch_index => config['elasticsearch-index'],
   }
+
+  # Add environment-dependent values.
+  if env == :DEVELOPMENT
+    # If present, strip out the baseurl prefix.
+    if digital_objects_location.start_with? config['baseurl']
+      digital_objects_location = digital_objects_location[config['baseurl'].length..-1]
+      # Trim any leading slash from the objects directory
+      digital_objects_location.delete_prefix! '/'
+    end
+    retval.update({
+      :objects_dir => digital_objects_location,
+      :thumb_images_dir => File.join([digital_objects_location, 'thumbs']),
+      :small_images_dir => File.join([digital_objects_location, 'small']),
+      :extracted_pdf_text_dir => File.join([digital_objects_location, 'extracted_text']),
+      :elasticsearch_dir => File.join([digital_objects_location, 'elasticsearch']),
+    })
+  else
+    # Environment is PRODUCTION_PREVIEW or PRODUCTION.
+    retval.update({
+      :remote_objects_url => digital_objects_location,
+      :remote_thumb_images_url => File.join([digital_objects_location, 'thumbs']),
+      :remote_small_images_url => File.join([digital_objects_location, 'small']),
+    })
+  end
+
+  return retval
 end
 
 def get_es_user_credentials user = "admin"
@@ -158,13 +167,13 @@ task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing, :im_
     :im_executable => "magick",
   )
 
-  config = load_config
+  config = load_config :DEVELOPMENT
   objects_dir = config[:objects_dir]
-  thumb_image_dir = config[:thumb_image_dir]
-  small_image_dir = config[:small_image_dir]
+  thumb_images_dir = config[:thumb_images_dir]
+  small_images_dir = config[:small_images_dir]
 
   # Ensure that the output directories exist.
-  [thumb_image_dir, small_image_dir].each &$ensure_dir_exists
+  [thumb_images_dir, small_images_dir].each &$ensure_dir_exists
 
   EXTNAME_TYPE_MAP = {
     '.jpg' => :image,
@@ -197,14 +206,14 @@ task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing, :im_
     base_filename = File.basename(filename)[0..-(extname.length + 1)].downcase
 
     # Generate the thumb image.
-    thumb_filename=File.join([thumb_image_dir, "#{base_filename}_th.jpg"])
+    thumb_filename=File.join([thumb_images_dir, "#{base_filename}_th.jpg"])
     if args.missing == 'false' or !File.exists?(thumb_filename)
       puts "Creating: #{thumb_filename}";
       system("#{cmd_prefix} -resize #{args.thumbs_size} -flatten #{thumb_filename}")
     end
 
     # Generate the small image.
-    small_filename = File.join([small_image_dir, "#{base_filename}_sm.jpg"])
+    small_filename = File.join([small_images_dir, "#{base_filename}_sm.jpg"])
     if args.missing == 'false' or !File.exists?(small_filename)
       puts "Creating: #{small_filename}";
       system("#{cmd_prefix} -resize #{args.small_size} -flatten #{small_filename}")
@@ -220,7 +229,7 @@ end
 desc "Extract the text from PDF collection objects"
 task :extract_pdf_text do
 
-  config = load_config
+  config = load_config :DEVELOPMENT
   output_dir = config[:extracted_pdf_text_dir]
   $ensure_dir_exists.call output_dir
 
@@ -242,7 +251,7 @@ end
 desc "Generate the file that we'll use to populate the Elasticsearch index via the Bulk API"
 task :generate_es_bulk_data do
 
-  config = load_config
+  config = load_config :DEVELOPMENT
 
   # Create a search config <fieldName> => <configDict> map.
   field_config_map = {}
@@ -383,7 +392,7 @@ task :generate_es_index_settings do
   end
 
   # Main block
-  config = load_config
+  config = load_config :DEVELOPMENT
 
   index_settings = INDEX_SETTINGS_TEMPLATE.dup
   config[:search_config].each do |field_def|
@@ -414,7 +423,7 @@ task :create_es_index, [:es_user] do |t, args|
   )
 
   # If es_user was specified, target the production ES server.
-  env = if args.es_user != nil then :PRODUCTION else :DEVELOPMENT end
+  env = if args.es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end
   config = load_config env
 
   protocol = config[:elasticsearch_protocol]
@@ -423,6 +432,9 @@ task :create_es_index, [:es_user] do |t, args|
   path = "/#{config[:elasticsearch_index]}"
   req = Net::HTTP::Put.new(path, initheader = { 'Content-Type' => 'application/json' })
 
+  # Get the local ES config file location from the development config.
+  dev_config = load_config :DEVELOPMENT
+
   # If an Elasticsearch user was specified, use their credentials to configure
   # basic auth.
   if args.es_user != nil
@@ -430,7 +442,7 @@ task :create_es_index, [:es_user] do |t, args|
     req.basic_auth es_creds["username"], es_creds["password"]
   end
 
-  req.body = File.open(File.join([config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read
+  req.body = File.open(File.join([dev_config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read
 
   res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
     http.request(req)
@@ -460,7 +472,7 @@ task :delete_es_index, [:es_user] do |t, args|
   )
 
   # If es_user was specified, target the production ES server.
-  env = if args.es_user != nil then :PRODUCTION else :DEVELOPMENT end
+  env = if args.es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end
   config = load_config env
 
   res = prompt_user_for_confirmation "Really delete index \"#{config[:elasticsearch_index]}\"?"
@@ -509,7 +521,7 @@ task :load_es_bulk_data, [:es_user] do |t, args|
   )
 
   # If es_user was specified, target the production ES server.
-  env = if args.es_user != nil then :PRODUCTION else :DEVELOPMENT end
+  env = if args.es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end
   config = load_config env
 
   protocol = config[:elasticsearch_protocol]
@@ -518,6 +530,9 @@ task :load_es_bulk_data, [:es_user] do |t, args|
   path = "/_bulk"
   req = Net::HTTP::Post.new(path, initheader = { 'Content-Type' => 'application/x-ndjson' })
 
+  # Get the local ES config file location from the development config.
+  dev_config = load_config :DEVELOPMENT
+
   # If an Elasticsearch user was specified, use their credentials to configure
   # basic auth.
   if args.es_user != nil
@@ -525,7 +540,7 @@ task :load_es_bulk_data, [:es_user] do |t, args|
     req.basic_auth es_creds["username"], es_creds["password"]
   end
 
-  req.body = File.open(File.join([config[:elasticsearch_dir], $ES_BULK_DATA_FILENAME]), 'rb').read
+  req.body = File.open(File.join([dev_config[:elasticsearch_dir], $ES_BULK_DATA_FILENAME]), 'rb').read
 
   res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
     http.request(req)
@@ -548,7 +563,7 @@ task :setup_elasticsearch do
   Rake::Task['generate_es_index_settings'].invoke
 
   # Wait for the Elasticsearch instance to be ready.
-  config = load_config
+  config = load_config :DEVELOPMENT
   while ! elasticsearch_ready config
     puts 'Waiting for Elasticsearch... Is it running?'
     sleep 2
@@ -580,16 +595,16 @@ task :sync_objects, [ :aws_profile ] do |t, args |
   # Get the local objects directories from the development configuration.
   dev_config = load_config :DEVELOPMENT
   objects_dir = dev_config[:objects_dir]
-  thumb_image_dir = dev_config[:thumb_image_dir]
-  small_image_dir = dev_config[:small_image_dir]
+  thumb_images_dir = dev_config[:thumb_images_dir]
+  small_images_dir = dev_config[:small_images_dir]
 
   # Get the remove objects URL from the production configuration.
-  s3_url = load_config(:PRODUCTION_PREVIEW)[:objects_dir]
+  s3_url = load_config(:PRODUCTION_PREVIEW)[:remote_objects_url]
 
   # Derive the S3 endpoint from the URL, with the expectation that it has the
-  # format: <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com
+  # format: <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com[/<prefix>]
   # where the endpoint will be: <region>.digitaloceanspaces.com
-  REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com$/
+  REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com(?:\/(?<prefix>.+))?$/
   match = REGEX.match s3_url
   if !match
     puts "digital-objects URL \"#{s3_url}\" does not match the expected "\
@@ -598,6 +613,7 @@ task :sync_objects, [ :aws_profile ] do |t, args |
   end
   bucket = match[:bucket]
   region = match[:region]
+  prefix = match[:prefix]
   endpoint = "https://#{region}.digitaloceanspaces.com"
 
   # Create the S3 client.
@@ -610,7 +626,7 @@ task :sync_objects, [ :aws_profile ] do |t, args |
 
   # Iterate over the object files and put each into the remote bucket.
   num_objects = 0
-  [ objects_dir, thumb_image_dir, small_image_dir ].each do |dir|
+  [ objects_dir, thumb_images_dir, small_images_dir ].each do |dir|
     # Enforce a requirement by the subsequent object key generation code that each
     # enumerated directory path starts with objects_dir.
     if !dir.start_with? objects_dir
@@ -623,8 +639,11 @@ task :sync_objects, [ :aws_profile ] do |t, args |
         next
       end
 
-      # Generate an object key that reflects the file location relative to objects_dir.
-      key = "#{dir[objects_dir.length..]}/#{File.basename(filename)}".delete_prefix "/"
+      # Generate the remote object key using any specified digital-objects prefix and the
+      # location of the local file relative to the objects dir.
+      key = "#{prefix}/#{dir[objects_dir.length..]}/#{File.basename(filename)}"
+              .gsub('//', '/')
+              .delete_prefix('/')
 
       puts "Uploading \"#{filename}\" as \"#{key}\"..."
       s3_client.put_object(

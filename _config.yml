@@ -21,10 +21,10 @@ elasticsearch-port: 9200
 elasticsearch-index: moscon_programs_collection
 
 # Site settings
-title: Collection Builder CDM Skin
+title: MosCon Collection
 # header and head metadata
-tagline: Digital Collection Magic with Static Web Technologies
-description: "CollectionBuilder-CONTENTdm is a template for creating digital collection exhibits on top of existing CONTENTdm repositories. This demo features materials from the Frank B. Robinson Papers documenting Psychiana, a religion popular in the 1930s and 40s."
+tagline: The Palouse Empire Science Fiction Association Archive
+description: "A collection of MosCon artifacts celebrating the Palouse Empire Science Fiction Association's decades of fandom on the Palouse."
 # Organization branding
 organization-name: "Digital Initiatives, University of Idaho Library"
 organization-link: https://www.lib.uidaho.edu/digital/
