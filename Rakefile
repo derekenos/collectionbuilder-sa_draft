@@ -226,6 +226,124 @@ end
 
 
 ###############################################################################
+# TASK: normalize_object_filenames
+###############################################################################
+
+desc "Rename the object files to match their corresponding objectid metadata value"
+task :normalize_object_filenames do
+
+  config = load_config :DEVELOPMENT
+  objects_dir = config[:objects_dir]
+
+  FORMAT_EXTENSION_MAP = {
+    'image/jpg' => '.jpg',
+    'application/pdf' => '.pdf'
+  }
+
+  VALID_FORMATS = Set[*FORMAT_EXTENSION_MAP.keys]
+
+  def get_normalized_filename(objectid, format)
+    return "#{objectid}#{FORMAT_EXTENSION_MAP[format]}"
+  end
+
+  # Do a dry run to check that:
+  #  - there are no objectid collisions
+  #  - all format values are valid
+  #  - all referenced filenames are present
+  #  - the existing filename extension matches the format
+  #  - no renamed filename will overwrite an existing
+  seen_objectids = Set[]
+  duplicate_objectids = Set[]
+  invalid_formats = Set[]
+  missing_files = Set[]
+  invalid_extensions = Set[]
+  existing_filename_collisions = Set[]
+  num_items = 0
+  config[:metadata].each do |item|
+    # Check for objectids collisions.
+    objectid = item['objectid']
+    if seen_objectids.include? objectid
+      duplicate_objectids.add objectid
+    else
+      seen_objectids.add objectid
+    end
+
+    # Check that the format is valid.
+    format = item['format']
+    if !VALID_FORMATS.include? format
+      invalid_formats.add format
+    end
+
+    # Check whether the file exists.
+    filename = item['filename']
+    if !File.exist? File.join([objects_dir, filename])
+      missing_files.add filename
+    end
+
+    # Check that the existing filename extension match the format.
+    extension = File.extname(filename)
+    if extension != FORMAT_EXTENSION_MAP[format]
+      invalid_extensions.add extension
+    end
+
+    # Check that the new filename will not overwrite an existing file.
+    normalized_filename = get_normalized_filename(objectid, format)
+    if File.exist? File.join([objects_dir, normalized_filename])
+      existing_filename_collisions.add normalized_filename
+    end
+
+    num_items += 1
+  end
+
+  if (duplicate_objectids.size +
+      invalid_formats.size +
+      missing_files.size +
+      invalid_extensions.size +
+      existing_filename_collisions.size
+     ) > 0
+    print "Aborting due to the following errors:\n"
+    if duplicate_objectids.size > 0
+      print " - metadata contains duplicate 'objectid' value(s): #{duplicate_objectids.to_a}\n"
+    end
+    if invalid_formats.size > 0
+      print " - metadata specifies unsupported 'format' value(s): #{invalid_formats.to_a}\n"
+    end
+    if missing_files.size > 0
+      print " - metadata specifies 'filename' value(s) for which a file does not exist: #{missing_files.to_a}\n"
+    end
+    if invalid_extensions.size > 0
+      print " - existing filename extensions do not match their format: #{invalid_extensions.to_a}\n"
+    end
+    if existing_filename_collisions.size > 0
+      print " - renamed files would have overwritten existing files: #{existing_filename_collisions.to_a}\n"
+    end
+    # Abort the task
+    next
+  end
+
+  # Everything looks good - do the renaming.
+  res = prompt_user_for_confirmation "Rename #{num_items} files to match their objectid?"
+  if res == false
+    next
+  end
+
+  config[:metadata].each do |item|
+    objectid = item['objectid']
+    filename = item['filename']
+    format = item['format']
+
+    normalized_filename = get_normalized_filename(objectid, format)
+    existing_path = File.join([objects_dir, filename])
+    new_path = File.join([objects_dir, normalized_filename])
+    File.rename(existing_path, new_path)
+
+    print "Renamed \"#{existing_path}\" to \"#{new_path}\"\n"
+  end
+
+end
+
+
+###############################################################################
 # extract_pdf_text
 ###############################################################################
 
