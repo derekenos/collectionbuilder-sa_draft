@@ -73,7 +73,10 @@ def load_config env = :DEVELOPMENT
   if !metadata_name
     raise "metadata must be defined in _config.yml"
   end
-  metadata = CSV.parse(File.read(File.join(['_data', "#{metadata_name}.csv"])), headers: true)
+  metadata_filename = File.join(['_data', "#{metadata_name}.csv"])
+  # TODO - document the assumption that the metadata CSV is UTF-8 encoded.
+  metadata_text = File.read(metadata_filename, :encoding => 'utf-8')
+  metadata = CSV.parse(metadata_text, headers: true)
 
   # Load the search configuration.
   search_config = CSV.parse(File.read($SEARCH_CONFIG_PATH), headers: true)
