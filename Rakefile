@@ -149,7 +149,7 @@ end
 desc "Build site with production env"
 task :deploy do
   ENV["JEKYLL_ENV"] = "production"
-  sh "jekyll build"
+  sh "jekyll build --config _config.yml,_config.production.yml"
 end
 
 
