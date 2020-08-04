@@ -230,7 +230,11 @@ end
 ###############################################################################
 
 desc "Rename the object files to match their corresponding objectid metadata value"
-task :normalize_object_filenames do
+task :normalize_object_filenames, [:force] do |t, args|
+  args.with_defaults(
+    :force => "false"
+  )
+  force = args.force == "true"
 
   config = load_config :DEVELOPMENT
   objects_dir = config[:objects_dir]
@@ -311,7 +315,7 @@ task :normalize_object_filenames do
       invalid_extensions.size +
       existing_filename_collisions.size
      ) > 0
-    print "Aborting due to the following errors:\n"
+    print "The following errors were detected:\n"
     if duplicate_objectids.size > 0
       print " - metadata contains duplicate 'objectid' value(s): #{duplicate_objectids.to_a}\n"
     end
@@ -330,8 +334,12 @@ task :normalize_object_filenames do
     if existing_filename_collisions.size > 0
       print " - renamed files would have overwritten existing files: #{existing_filename_collisions.to_a}\n"
     end
-    # Abort the task
-    next
+    if !force
+      # Abort the task
+      next
+    else
+      print "The 'force' argument was specified, continuing...\n"
+    end
   end
 
   # Everything looks good - do the renaming.
