@@ -6,7 +6,7 @@
 url:
 # location on the domain
 # e.g. /digital/hjccc
-baseurl:
+baseurl: /
 
 # url to objects folder
 digital-objects: objects
@@ -18,14 +18,14 @@ source-code: https://github.com/CollectionBuilder
 elasticsearch-protocol: http
 elasticsearch-host: 0.0.0.0
 elasticsearch-port: 9200
-elasticsearch-index: moscon
+elasticsearch-index: uiext
 elasticsearch-directory-index: directory_
 
 # Site settings
-title: MosCon Collection
+title: Agricultural Experiment & UI Extension Publications
 # header and head metadata
-tagline: The Palouse Empire Science Fiction Association Archive
-description: "A collection of MosCon artifacts celebrating the Palouse Empire Science Fiction Association's decades of fandom on the Palouse."
+tagline: Primary sources for practical, research-based information on Idaho Agriculture, Forestry, Gardening, and Family and Consumer Sciences
+description: "A collaboration between the Library and University of Idaho Extension, the University of Idaho Extension and Idaho Agricultural Experiment Station Publications collection features over 2000 publications that serve as the primary source for practical, research-based information on Idaho agriculture, forestry, gardening, family and consumer sciences, and other to links."
 # Organization branding
 organization-name: "Digital Initiatives, University of Idaho Library"
 organization-link: https://www.lib.uidaho.edu/digital/
@@ -34,11 +34,11 @@ organization-logo-nav: https://www.lib.uidaho.edu/media/digital/bannerlogo_allwh
 
 # Collection settings
 # name of metadata file, be sure to also change page_gen data setting!
-metadata: demo_moscon
+metadata: metadata
 # page gen settings
 # "data" value must be the name of the metadata file
 page_gen:
-  - data: 'demo_moscon'
+  - data: 'metadata'
     template: 'items'
     name: 'objectid'
     dir: 'items'
