@@ -248,12 +248,15 @@ task :normalize_object_filenames do
 
   # Do a dry run to check that:
   #  - there are no objectid collisions
+  #  - there are no filename collisions
   #  - all format values are valid
   #  - all referenced filenames are present
   #  - the existing filename extension matches the format
   #  - no renamed filename will overwrite an existing
   seen_objectids = Set[]
   duplicate_objectids = Set[]
+  seen_filenames = Set[]
+  duplicate_filenames = Set[]
   invalid_formats = Set[]
   missing_files = Set[]
   invalid_extensions = Set[]
@@ -274,8 +277,14 @@ task :normalize_object_filenames do
       invalid_formats.add format
     end
 
-    # Check whether the file exists.
     filename = item['filename']
+    # Check for metadata filename collisions.
+    if seen_filenames.include? filename
+      duplicate_filenames.add filename
+    else
+      seen_filenames.add filename
+    end
+    # Check whether the file exists.
     if !File.exist? File.join([objects_dir, filename])
       missing_files.add filename
     end
@@ -296,6 +305,7 @@ task :normalize_object_filenames do
   end
 
   if (duplicate_objectids.size +
+      duplicate_filenames.size +
       invalid_formats.size +
       missing_files.size +
       invalid_extensions.size +
@@ -304,6 +314,9 @@ task :normalize_object_filenames do
     print "Aborting due to the following errors:\n"
     if duplicate_objectids.size > 0
       print " - metadata contains duplicate 'objectid' value(s): #{duplicate_objectids.to_a}\n"
+    end
+    if duplicate_filenames.size > 0
+      print " - metadata contains duplicate 'filename' value(s): #{duplicate_filenames.to_a}\n"
     end
     if invalid_formats.size > 0
       print " - metadata specifies unsupported 'format' value(s): #{invalid_formats.to_a}\n"
@@ -338,6 +351,29 @@ task :normalize_object_filenames do
     File.rename(existing_path, new_path)
 
     print "Renamed \"#{existing_path}\" to \"#{new_path}\"\n"
+  end
+
+  # Check whether any files with a filename derived from the old filenames exist.
+  extracted_text_files = Dir.glob("#{config[:extracted_pdf_text_dir]}/*")
+  derivative_files = (Dir.glob("#{config[:thumb_images_dir]}/*") +
+                      Dir.glob("#{config[:small_images_dir]}/*"))
+
+  if extracted_text_files.size > 0
+       print "\nIt looks like you ran the extract_pdf_text task before normalizing the filenames. Since the extracted text files are given names that are based on that of the original file, you need to delete the existing files and run the extract_pdf_text task again.\n"
+    res = prompt_user_for_confirmation "Delete the existing extracted PDF text files now?"
+    if res == true
+      FileUtils.rm extracted_text_files
+    end
+    print "Deleted #{extracted_text_files.size} extracted text files from \"#{config[:extracted_pdf_text_dir]}\". Remember to rerun the extract_pdf_text rake task.\n"
+  end
+
+  if derivative_files.size > 0
+       print "\nIt looks like you ran the generate_derivatives task before normalizing the filenames. Since the direvative files are given names that are based on that of the original file, you need to delete the existing files and run the generate_derivatives task again.\n"
+    res = prompt_user_for_confirmation "Delete the existing derivative files now?"
+    if res == true
+      FileUtils.rm derivative_files
+      print "Deleted #{derivative_files.size} derivative files from \"#{config[:thumb_images_dir]}\" and/or \"#{config[:small_images_dir]}\". Remember to rerun the generate_derivatives rake task.\n"
+    end
   end
 
 end
