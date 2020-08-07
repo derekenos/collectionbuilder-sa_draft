@@ -372,18 +372,9 @@ This section will describe how to get Elasticsearch up and running on a Digital 
         2. Take note of the `ipv4` IP address displayed at the top
         3. However you do this, create a `A` DNS record to associate a root/sub-domain with your Droplet IP address
 
-    Using DigitalOcean, you can create this A record. Here are [some instructions](https://www.digitalocean.com/docs/networking/dns/how-to/manage-records/)
-    
-    1. Copy your ipv4 IP address that is dsiplayed at the top of the Droplet record
-    2. Go to the Networking page for DigitalOcean by clicking the `Networking` option on the left panel. 
-    3. Click on the Domains option at the top of the page. 
-    4. Paste your ipv4 IP Address into the form and click `Add Domain`
-    5. Enter `@` in the Hostname input form.
-    6. Select your droplet from the "Will Direct To" dropdown form to the right of the Hostname form. 
-    7. Click `Create Record`
+  You will need to have a domain to create an A record. If you have one hosted somewhere, such as a personal website, you can go to the area where they manage the DNS records (A and CNAME, etc.) and add an A record to a new subdomain, such as, digitalocean.johndoe.com and point it to the ipv4 IP addresss on your Droplet. 
 
-
-
+  Once that is set up, you will enter that full domain (i.e. `digitalocean.johndoe.com) in step 9 below to generate the certificate. 
 
     2. Generate the certificate
         1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
