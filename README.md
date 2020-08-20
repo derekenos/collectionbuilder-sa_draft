@@ -44,6 +44,8 @@ The rake tasks that we'll be using have the following dependencies:
 
 #### Install the Required Software Dependencies
 
+*Note for MAC Users: Several dependencies can be installed using [Homebrew](https://brew.sh/). Homebrew makes the installation simple via basic command line instructions like `brew install imagemagick`
+
 ##### ImageMagick 7
 ImageMagick is used by `generate-derivatives` to create small and thumbnail images from `.jpg` and `.pdf` (with Ghostscript) collection object files.
 
@@ -52,6 +54,10 @@ _Note that if you already have ImageMagick 6 installed and want to use that, see
 Download the appropriate executable for your operating system here: https://imagemagick.org/script/download.php
 
 The scripts expect this to be executable via the command `magick`.
+
+The **Windows** version of ImageMagick is self-installing. Scroll down the screen to find the downloadable installer. 
+
+ImageMagick recommends the use of [Homebrew](https://brew.sh/) for **Mac** users. After Homebrew is installed, simply type `brew install imagemagick` into the terminal.
 
 Here's an example of installation under Ubuntu:
 ```
@@ -68,7 +74,11 @@ Download the appropriate executable for your operating system here: https://www.
 
 The scripts expect this to be executable via the command `gs`.
 
-Here's an example of installation under Ubuntu:
+**Windows**  users will use an installation wizard downloaded from the above site. Just check the default settings.
+
+**Mac** users can use Homebrew and type `brew install ghostscript` into the command line. 
+
+Here's an example of installation under **Ubuntu**:
 ```
 curl -L https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs952/ghostscript-9.52-linux-x86_64.tgz -O
 tar xf ghostscript-9.52-linux-x86_64.tgz
@@ -80,9 +90,11 @@ rm -rf ghostscript-9.52-linux-x86_64*
 ##### Xpdf 4.02
 The `pdftotext` utility in the Xpdf package is used by `extract-pdf-text` to extract text from `.pdf` collection object files.
 
-Download the appropriate executable for your operating system under the "... command line tools" section here: http://www.xpdfreader.com/download.html
+Download the appropriate executable for your operating system under the "Download the Xpdf command line tools:" section here: http://www.xpdfreader.com/download.html
 
 The scripts expect this to be executable via the command `pdftotext`.
+
+**Windows**  users will need to extract the files from the downloaded .zip folder and then move the extracted directory to their program files folder. 
 
 Here's an example of installation under Ubuntu:
 ```
@@ -96,6 +108,9 @@ rm -rf xpdf-tools-linux-4.02*
 ##### Elasticsearch 7.7.0
 Download the appropriate executable for your operating system here: https://www.elastic.co/downloads/elasticsearch
 
+**Windows**  users will need to extract the files from the downloaded .zip folder and then move the extracted directory to their program files folder. 
+
+
 Here's an example of installation under Ubuntu:
 ```
 curl https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.7.0-amd64.deb -O
@@ -105,6 +120,9 @@ sudo dpkg -i elasticsearch-7.7.0-amd64.deb
 ```
 
 ###### Configure Elasticsearch
+
+***For Mac and Linux Users***
+
 Add the following lines to your `elasticsearch.yml` configuration file:
 
 ```
@@ -124,6 +142,30 @@ elasticsearch-host: 0.0.0.0
 elasticsearch-port: 9200
 elasticsearch-index: moscon_programs_collection
 ```
+
+***For Windows Users***
+
+Add the following lines to your `elasticsearch.yml` configuration file:
+
+```
+network.host: localhost
+discovery.type: single-node
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+```
+
+Following the above installation for Ubuntu, `elasticsearch.yml` can be found in the directory `/etc/elasticsearch`
+
+###### Update `_config.yml`
+Update [\_config.yml](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/non-docker/_config.yml#L17-L21) to reflect your Elasticsearch server configuration. E.g.:
+```
+elasticsearch-protocol: http
+elasticsearch-host: localhost
+elasticsearch-port: 9200
+elasticsearch-index: moscon_programs_collection
+```
+
+
 
 
 ## Setting Up Your Local Development Environment
@@ -227,6 +269,8 @@ rake generate_es_index_settings
 #### 5.4 Create the Search Index
 Use the `create_es_index` rake task to create the Elasticsearch index from the index settings file.
 
+**Windows** users may have trouble here with the various ports not allowing access. 
+
 Local development usage:
 ```
 rake create_es_index
@@ -294,8 +338,12 @@ This section will describe how to get Elasticsearch up and running on a Digital 
 
     ![do_custom_image_import](https://user-images.githubusercontent.com/585182/87325500-8678f500-c4ff-11ea-9a70-e65b437b4c20.gif)
 
+- You will need to select a "Distribution" -- Choose `Ubuntu`. 
+- You will need to select a distribution center location. Choose the location closest to your physical location. 
 
 2. Once the image is available within your account, click on `More -> Start a droplet`
+
+- You can simply leave the default settings and scroll to the bottom of the page to start this. 
 
 3. Once the Droplet is running, navigate to:
 
@@ -313,6 +361,7 @@ This section will describe how to get Elasticsearch up and running on a Digital 
 
     In the `Apply to Droplets` section, specify the name of the previously-created Elasticsearch Droplet and click `Create Firewall`
 
+    This can be found at the top of the page for the firewall. There is a `droplets` menu option (it's a little hard to see). Click that and then specifiy the name of the droplet you created.
 
 4. Generate your SSL certificate
 
@@ -322,10 +371,14 @@ This section will describe how to get Elasticsearch up and running on a Digital 
         1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
         2. Take note of the `ipv4` IP address displayed at the top
         3. However you do this, create a `A` DNS record to associate a root/sub-domain with your Droplet IP address
-    
+
+  You will need to have a domain to create an A record. If you have one hosted somewhere, such as a personal website, you can go to the area where they manage the DNS records (A and CNAME, etc.) and add an A record to a new subdomain, such as, digitalocean.johndoe.com and point it to the ipv4 IP addresss on your Droplet. 
+
+  Once that is set up, you will enter that full domain (i.e. `digitalocean.johndoe.com) in step 9 below to generate the certificate. 
+
     2. Generate the certificate
         1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
-        2. Click the `Console []` link on the right side
+        2. Click the `Console []` link on the right side (it's a blue link at the top right)
         3. At the `elastic login:` prompt, type `ubuntu` and hit `ENTER`
         4. At the `Password:` prompt, type `password` and hit `ENTER`
         5. Type `sudo ./get-ssl-certificate` and hit `ENTER`, type `password` and hit `ENTER`
