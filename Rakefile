@@ -107,6 +107,8 @@ def load_config env = :DEVELOPMENT
   retval = {
     :metadata => metadata,
     :search_config => search_config,
+    :collection_title => config['title'],
+    :collection_description => config['description'],
     :elasticsearch_protocol => config['elasticsearch-protocol'],
     :elasticsearch_host => config['elasticsearch-host'],
     :elasticsearch_port => config['elasticsearch-port'],
@@ -606,6 +608,13 @@ task :generate_es_index_settings do
   config = load_config :DEVELOPMENT
 
   index_settings = INDEX_SETTINGS_TEMPLATE.dup
+
+  # Add the _meta mapping field with information about the index itself.
+  index_settings[:mappings]['_meta'] = {
+    :title => config[:collection_title],
+    :description => config[:collection_description],
+  }
+
   config[:search_config].each do |field_def|
     assert_field_def_is_valid(field_def)
     convert_field_def_bools(field_def)
@@ -677,6 +686,21 @@ def make_es_request config, user, method, path, body=nil, content_type=nil
   end
 
   return res
+end
+
+
+def get_es_index_metadata config, user, index
+  res = make_es_request(
+    config=config,
+    user=user,
+    method=:GET,
+    path="/#{index}/_mapping"
+  )
+  data = JSON.load res.body
+  if res.code != '200'
+      raise data
+  end
+  return data[index]['mappings']['_meta']
 end
 
 
@@ -865,7 +889,7 @@ task :update_es_directory_index, [:es_user] do |t, args|
       config=config,
       user=args.es_user,
       method=:DELETE,
-      path="/#{directory_index_name}/#{index_name}"
+      path="/#{directory_index_name}/_doc/#{index_name}"
     )
     puts "Deleted index document (#{index_name}) from the directory"
   end
@@ -875,10 +899,15 @@ task :update_es_directory_index, [:es_user] do |t, args|
   indices_to_add.each do |index_name|
     index = collection_name_index_map[index_name]
     index_name = index['index']
+
+    # Get the title and description values from the index mapping.
+    index_meta = get_es_index_metadata(config, args.es_user, index_name)
+
     document = {
       :index => index_name,
-      :title => "TODO",
-      :doc_count => index['docs.count']
+      :doc_count => index['docs.count'],
+      :title => index_meta['title'],
+      :description => index_meta['description']
     }
 
     res = make_es_request(
