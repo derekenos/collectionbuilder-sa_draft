@@ -690,31 +690,17 @@ task :create_es_index, [:es_user] do |t, args|
     :es_user => nil,
   )
 
-  # If es_user was specified, target the production ES server.
-  env = if args.es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end
-  config = load_config env
-
-  protocol = config[:elasticsearch_protocol]
-  host = config[:elasticsearch_host]
-  port = config[:elasticsearch_port]
-  path = "/#{config[:elasticsearch_index]}"
-  req = Net::HTTP::Put.new(path, initheader = { 'Content-Type' => 'application/json' })
-
-  # Get the local ES config file location from the development config.
+  config = $get_config_for_es_user.call args.es_user
   dev_config = load_config :DEVELOPMENT
 
-  # If an Elasticsearch user was specified, use their credentials to configure
-  # basic auth.
-  if args.es_user != nil
-    es_creds = get_es_user_credentials args.es_user
-    req.basic_auth es_creds["username"], es_creds["password"]
-  end
-
-  req.body = File.open(File.join([dev_config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read
-
-  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
-    http.request(req)
-  end
+  res = make_es_request(
+    config=config,
+    user=args.es_user,
+    method=:PUT,
+    path="/#{config[:elasticsearch_index]}",
+    body=File.open(File.join([dev_config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read,
+    content_type='application/json'
+  )
 
   if res.code == '200'
     puts "Created Elasticsearch index: #{config[:elasticsearch_index]}"
@@ -739,31 +725,19 @@ task :delete_es_index, [:es_user] do |t, args|
     :es_user => nil,
   )
 
-  # If es_user was specified, target the production ES server.
-  env = if args.es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end
-  config = load_config env
+  config = $get_config_for_es_user.call args.es_user
 
   res = prompt_user_for_confirmation "Really delete index \"#{config[:elasticsearch_index]}\"?"
   if res == false
     next
   end
 
-  protocol = config[:elasticsearch_protocol]
-  host = config[:elasticsearch_host]
-  port = config[:elasticsearch_port]
-  path = "/#{config[:elasticsearch_index]}"
-  req = Net::HTTP::Delete.new(path)
-
-  # If an Elasticsearch user was specified, use their credentials to configure
-  # basic auth.
-  if args.es_user != nil
-    es_creds = get_es_user_credentials args.es_user
-    req.basic_auth es_creds["username"], es_creds["password"]
-  end
-
-  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
-    http.request(req)
-  end
+  res = make_es_request(
+    config=config,
+    user=args.es_user,
+    method=:DELETE,
+    path="/#{config[:elasticsearch_index]}"
+  )
 
   if res.code == '200'
     puts "Deleted Elasticsearch index: #{config[:elasticsearch_index]}"
@@ -788,31 +762,17 @@ task :load_es_bulk_data, [:es_user] do |t, args|
     :es_user => nil,
   )
 
-  # If es_user was specified, target the production ES server.
-  env = if args.es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end
-  config = load_config env
-
-  protocol = config[:elasticsearch_protocol]
-  host = config[:elasticsearch_host]
-  port = config[:elasticsearch_port]
-  path = "/_bulk"
-  req = Net::HTTP::Post.new(path, initheader = { 'Content-Type' => 'application/x-ndjson' })
-
-  # Get the local ES config file location from the development config.
+  config = $get_config_for_es_user.call args.es_user
   dev_config = load_config :DEVELOPMENT
 
-  # If an Elasticsearch user was specified, use their credentials to configure
-  # basic auth.
-  if args.es_user != nil
-    es_creds = get_es_user_credentials args.es_user
-    req.basic_auth es_creds["username"], es_creds["password"]
-  end
-
-  req.body = File.open(File.join([dev_config[:elasticsearch_dir], $ES_BULK_DATA_FILENAME]), 'rb').read
-
-  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
-    http.request(req)
-  end
+  res = make_es_request(
+    config=config,
+    user=args.es_user,
+    method=:POST,
+    path = "/_bulk",
+    body=File.open(File.join([dev_config[:elasticsearch_dir], $ES_BULK_DATA_FILENAME]), 'rb').read,
+    content_type='application/x-ndjson'
+  )
 
   if res.code != '200'
     raise res.body
