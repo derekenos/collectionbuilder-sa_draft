@@ -21,6 +21,29 @@ $ENV_CONFIG_FILENAMES_MAP = {
   :PRODUCTION => [ '_config.yml', '_config.production.yml' ],
 }
 
+$ES_DIRECTORY_INDEX_SETTINGS = {
+  :mappings => {
+    :properties => {
+      :index => {
+        :type => "text",
+        :index => false,
+      },
+      :title => {
+        :type => "text",
+        :index => false,
+      },
+      :description => {
+        :type => "text",
+        :index => false,
+      },
+      :doc_count => {
+        :type => "integer",
+        :index => false,
+      }
+    }
+  }
+}
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -88,6 +111,7 @@ def load_config env = :DEVELOPMENT
     :elasticsearch_host => config['elasticsearch-host'],
     :elasticsearch_port => config['elasticsearch-port'],
     :elasticsearch_index => config['elasticsearch-index'],
+    :elasticsearch_directory_index => config['elasticsearch-directory-index'],
   }
 
   # Add environment-dependent values.
@@ -600,6 +624,63 @@ end
 
 
 ###############################################################################
+# Elasticsearch HTTP Request Helpers
+###############################################################################
+
+$get_config_for_es_user =
+  ->(es_user) { load_config (if es_user != nil then :PRODUCTION_PREVIEW else :DEVELOPMENT end) }
+
+
+def make_es_request config, user, method, path, body=nil, content_type=nil
+  protocol = config[:elasticsearch_protocol]
+  host = config[:elasticsearch_host]
+  port = config[:elasticsearch_port]
+
+  initheader = { 'Accept' => 'application/json' }
+  if content_type != nil
+    initheader['Content-Type'] = content_type
+  end
+
+  req_fn =
+    case method
+    when :GET
+      Net::HTTP::Get
+    when :PUT
+      Net::HTTP::Put
+    when :POST
+      Net::HTTP::Post
+    when :DELETE
+      Net::HTTP::Delete    else
+      raise "Unhandled HTTP method: #{method}"
+    end
+
+  req = req_fn.new(path, initheader = initheader)
+
+  # Get the local ES config file location from the development config.
+  dev_config = load_config :DEVELOPMENT
+
+  # If an Elasticsearch user was specified, use their credentials to configure
+  # basic auth.
+  if user != nil
+    creds = get_es_user_credentials user
+    req.basic_auth creds["username"], creds["password"]
+  end
+
+  # Set any specified body.
+  if body != nil
+    req.body = body
+  end
+
+  # Make the request.
+  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
+    http.request(req)
+  end
+
+  return res
+end
+
+
+###############################################################################
 # create_es_index
 ###############################################################################
 
@@ -737,6 +818,124 @@ task :load_es_bulk_data, [:es_user] do |t, args|
     raise res.body
   end
   puts "Loaded data into Elasticsearch"
+end
+
+
+###############################################################################
+# create_es_directory_index
+###############################################################################
+
+desc "Create the Elasticsearch directory index"
+task :create_es_directory_index, [:es_user] do |t, args|
+  args.with_defaults(
+    :es_user => nil,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+    config=config,
+    user=args.es_user,
+    method=:PUT,
+    path="/#{config[:elasticsearch_directory_index]}",
+    body=JSON.dump($ES_DIRECTORY_INDEX_SETTINGS),
+    content_type='application/json',
+  )
+
+  if res.code == '200'
+    puts "Created Elasticsearch directory index: #{config[:elasticsearch_directory_index]}"
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'resource_already_exists_exception'
+      puts "Elasticsearch directory index (#{config[:elasticsearch_directory_index]}) already exists"
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
+# update_es_directory_index
+###############################################################################
+
+desc "Update the Elasticsearch directory index to reflect the current indexes"
+task :update_es_directory_index, [:es_user] do |t, args|
+  args.with_defaults(
+    :es_user => nil,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  # Get the list of current collection indices.
+  res = make_es_request(
+    config=config,
+    user=args.es_user,
+    method=:GET,
+    path='/_cat/indices'
+  )
+  data = JSON.load(res.body)
+  if res.code != '200'
+    puts "Could not list the indices"
+    raise res.body
+  end
+  collection_indices = data.reject { |x| x['index'].start_with? '.' or x['index'] == config[:elasticsearch_directory_index] }
+  collection_name_index_map = Hash[ collection_indices.map { |x| [ x['index'], x ] } ]
+
+  # Get the existing directory index documents.
+  directory_index_name = config[:elasticsearch_directory_index]
+  res = make_es_request(
+    config=config,
+    user=args.es_user,
+    method=:GET,
+    path="/#{directory_index_name}/_search"
+  )
+  data = JSON.load(res.body)
+  if res.code != '200'
+    puts "Could not read the directory index"
+    raise res.body
+  end
+  directory_indices = data['hits']['hits'].map { |x| x['_source'] }
+  directory_name_index_map = Hash[ directory_indices.map { |x| [ x['index'], x ] } ]
+
+  # Delete any old collection indices from the directory.
+  indices_to_remove = directory_name_index_map.keys - collection_name_index_map.keys
+  indices_to_remove.each do |index_name|
+    make_es_request(
+      config=config,
+      user=args.es_user,
+      method=:DELETE,
+      path="/#{directory_index_name}/#{index_name}"
+    )
+    puts "Deleted index document (#{index_name}) from the directory"
+  end
+
+  # Add any new collection indices to the directory.
+  indices_to_add = collection_name_index_map.keys - directory_name_index_map.keys
+  indices_to_add.each do |index_name|
+    index = collection_name_index_map[index_name]
+    index_name = index['index']
+    document = {
+      :index => index_name,
+      :title => "TODO",
+      :doc_count => index['docs.count']
+    }
+
+    res = make_es_request(
+      config=config,
+      user=args.es_user,
+      method=:POST,
+      path="/#{directory_index_name}/_doc/#{index_name}",
+      body=JSON.dump(document),
+      content_type="application/json"
+    )
+    data = JSON.load(res.body)
+    if res.code != '201'
+      raise res.body
+    end
+    puts "Added index document (#{index_name}) to the directory"
+  end
+
 end
 
 

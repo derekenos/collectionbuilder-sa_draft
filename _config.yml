@@ -19,6 +19,7 @@ elasticsearch-protocol: http
 elasticsearch-host: 0.0.0.0
 elasticsearch-port: 9200
 elasticsearch-index: moscon_programs_collection
+elasticsearch-directory-index: directory_
 
 # Site settings
 title: MosCon Collection
