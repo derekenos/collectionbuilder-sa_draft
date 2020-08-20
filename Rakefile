@@ -238,6 +238,7 @@ task :normalize_object_filenames, [:force] do |t, args|
 
   config = load_config :DEVELOPMENT
   objects_dir = config[:objects_dir]
+  objects_backup_dir = File.join([objects_dir, '_prenorm_backup'])
 
   FORMAT_EXTENSION_MAP = {
     'image/jpg' => '.jpg',
@@ -293,15 +294,16 @@ task :normalize_object_filenames, [:force] do |t, args|
       missing_files.add filename
     end
 
-    # Check that the existing filename extension match the format.
+    # Check that the existing filename extension matches the format.
     extension = File.extname(filename)
     if extension != FORMAT_EXTENSION_MAP[format]
       invalid_extensions.add extension
     end
 
+    # If the new filename is different than the one specified in the metadata,
     # Check that the new filename will not overwrite an existing file.
     normalized_filename = get_normalized_filename(objectid, format)
-    if File.exist? File.join([objects_dir, normalized_filename])
+    if normalized_filename != filename and File.exist? File.join([objects_dir, normalized_filename])
       existing_filename_collisions.add normalized_filename
     end
 
@@ -348,12 +350,32 @@ task :normalize_object_filenames, [:force] do |t, args|
     next
   end
 
+  # Optionally backup the original files.
+  res = prompt_user_for_confirmation "Create backups of the original files in #{objects_backup_dir} ?"
+  if res == true
+    $ensure_dir_exists.call objects_backup_dir
+    Dir.glob(File.join([objects_dir, '*'])).each do |filename|
+      if !File.directory? filename
+        FileUtils.cp(
+          filename,
+          File.join([objects_backup_dir, File.basename(filename)])
+        )
+      end
+    end
+  end
+
   config[:metadata].each do |item|
     objectid = item['objectid']
     filename = item['filename']
     format = item['format']
 
     normalized_filename = get_normalized_filename(objectid, format)
+
+    # Leave the file alone if its filename is already normalized.
+    if normalized_filename == filename
+      next
+    end
+
     existing_path = File.join([objects_dir, filename])
     new_path = File.join([objects_dir, normalized_filename])
     File.rename(existing_path, new_path)
