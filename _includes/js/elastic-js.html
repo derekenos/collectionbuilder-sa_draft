@@ -619,11 +619,7 @@
        params.append("collection[]", indiceTitle)
      }
      // Do the redirect.
-     let baseUrl = "{{ site.baseurl }}"
-     if (!baseUrl.endsWith("/")) {
-       baseUrl += "/"
-     }
-     window.location = `${baseUrl}multi-collection-search?${params.toString()}`
+     window.location = `{{ site.baseurl }}/multi-collection-search?${params.toString()}`
    })
 
    nonMultiCollectionFacetEl = el
