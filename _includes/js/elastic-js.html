@@ -1,6 +1,8 @@
 {%- assign fields = site.data.config-search -%}
 <script>
- const ES_SEARCH_URL = "{{ site.elasticsearch-protocol }}://{{ site.elasticsearch-host }}:{{ site.elasticsearch-port }}/{{ site.elasticsearch-index }}/_search"
+ const INDEX_NAME = "{{ site.elasticsearch-index }}"
+ const ES_SEARCH_URL = `{{ site.elasticsearch-protocol }}://{{ site.elasticsearch-host }}:{{ site.elasticsearch-port }}/${INDEX_NAME}/_search`
+ const ES_DIRECTORY_URL = "{{ site.elasticsearch-protocol }}://{{ site.elasticsearch-host }}:{{ site.elasticsearch-port }}/directory_/_search"
 
  // Define the maximum number of facet values to show by default.
  const MAX_NUM_VISIBLE_FACET_VALUES = 5
@@ -9,6 +11,22 @@
  // "show more".
  const MAX_NUM_FACET_VALUES = 25
 
+ let indices_directory = null
+
+ async function get_indices_directory () {
+   /* Attempt to retrieve the indices directory from the server.
+    */
+   res = await (await fetch(ES_DIRECTORY_URL))
+   if (res.status === 200) {
+     return (await res.json())
+       .hits
+       .hits
+       .map( x => x['_source'] )
+       .filter( x => x['index'] !== INDEX_NAME )
+   }
+   console.error("Unable to retrieve the indices directory from the Elasticsearch server")
+   return null
+ }
 
  async function executeQuery (searchParams) {
    /* Perform the search and return the response, or return null if something
@@ -174,18 +192,7 @@
    search(getSearchParams())
  }
 
- const getSelectedFacetVals = name =>
-   new URLSearchParams(location.search).getAll(`${name}[]`)
-
  function FacetElement (facetName, buckets) {
-   // Get the selected values for this facet as specified in the URL.
-   const selectedVals = getSelectedFacetVals(facetName)
-
-   // Add a selected flag to the buckets.
-   buckets.forEach(bucket => {
-     bucket.selected = selectedVals.includes(bucket.key)
-   })
-
    // Sort the selected values to the top, by doc count descending.
    buckets.sort((a, b) => (a.selected ? 0 : 1) - (b.selected ? 0 : 1))
 
@@ -304,6 +311,9 @@
    return facetEl
  }
 
+ const getSelectedFacetVals = name =>
+   new URLSearchParams(location.search).getAll(`${name}[]`)
+
  function renderFacets (aggregations) {
    // Render the facet elements for the specified Elasticsearch aggregation
    // results.
@@ -315,9 +325,69 @@
    for (let facet of facets) {
      let aggregation = aggregations[facet]
      if (aggregation) {
-       facetsEl.appendChild(FacetElement(facet, aggregation.buckets))
+       // Get the selected values for this facet as specified in the URL.
+       const selectedVals = getSelectedFacetVals(facet)
+       // Add a selected flag to the buckets.
+       aggregation.buckets.forEach(bucket => {
+         bucket.selected = selectedVals.includes(bucket.key)
+       })
+       facetsEl.appendChild(FacetElement(facet, aggregation.buckets, selectedVals))
      }
    }
+ }
+
+ function CollectionFacetElement (num_other_collections) {
+   /* A cross-collection search call-to-action element that resembles
+      a facet.
+    */
+   const BUCKETS =  [
+     {key: "{{ site.title }}",
+      selected: true,
+     },
+     {key: `Search across (${num_other_collections}) additional collections from <br>{{ site.organization-name }}`,
+      selected: false,
+     },
+   ]
+   // Clone the facet template element.
+   const facetTemplate = document.getElementById("facet")
+   const facetEl = clone(facetTemplate)
+
+   facetEl.querySelector(".facet-name")
+     .childNodes[0].textContent = "Collection"
+
+   // Add all the facet values rows.
+   const facetValuesEl = facetEl.querySelector(".facet-values")
+   const facetValueTemplate = document.getElementById("facet-value")
+   BUCKETS.forEach((bucket, i) => {
+     // Clone the facet-value template element.
+     const facetValueEl = clone(facetValueTemplate)
+
+     // Remove the top border on the first, collection-name row
+     // and make it appear disabled.
+     if (i === 0) {
+       facetValueEl.style.borderTop = "none"
+       facetValueEl.style.backgroundColor = "#ddd"
+       facetValueEl.style.cursor = "not-allowed"
+     } else {
+       // Link to the multi-collection search page.
+       facetValueEl.innerHTML = `<a href="{{ site.baseurl }}/multi-collection-search${location.search}">${facetValueEl.innerHTML}</a>`
+       facetValueEl.style.textDecoration = "underline"
+
+     }
+
+     // Set the facet value name.
+     facetValueEl.querySelector(".facet-value-name").innerHTML =
+       bucket.key
+
+     // Append the facet value to the values container.
+     facetValuesEl.appendChild(facetValueEl)
+   })
+
+   // Remove the collapse/expand and show-more elements.
+   facetEl.querySelector(".collapsed-icon").remove()
+   facetEl.querySelector(".show-more").remove()
+
+   return facetEl
  }
 
 
@@ -396,6 +466,13 @@
    }
 
    renderFacets(response.aggregations)
+
+   // If other collections are available, add collections psuedo-facet.
+   const num_other_collections = indices_directory.length
+   if (num_other_collections > 0) {
+     document.querySelector("#facets")
+             .prepend(CollectionFacetElement(indices_directory.length))
+   }
 
  }
 
@@ -484,7 +561,10 @@
    hideAdvancedSearchOptions()
  }
 
- document.addEventListener("DOMContentLoaded", () => {
+ document.addEventListener("DOMContentLoaded", async () => {
+   // Get the directory of other available indics.
+   indices_directory = await get_indices_directory()
+
    // Get the search params and do the search.
    const params = getSearchParams()
    search(params)
