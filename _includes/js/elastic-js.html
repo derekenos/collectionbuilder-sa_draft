@@ -11,9 +11,12 @@
  // "show more".
  const MAX_NUM_FACET_VALUES = 25
 
- let indices_directory = null
+ // Define a global variable to store the collection facet element,
+ // to be initialized on document load.
+ let collectionFacetEl = null
 
- async function get_indices_directory () {
+
+ async function getIndicesDirectory () {
    /* Attempt to retrieve the indices directory from the server.
     */
    res = await (await fetch(ES_DIRECTORY_URL))
@@ -319,75 +322,27 @@
    // results.
    const facetsEl = document.querySelector("#facets")
    Array.from(facetsEl.children).forEach(el => el.remove())
+
+   // Maybe include the collection facet.
+   if (collectionFacetElement !== null) {
+     facetsEl.appendChild(collectionFacetElement)
+   }
+
    // Get the list of faceted field via liquid.
    const facets = [{% for f in faceted %}"{{ f.field }}",{% endfor %}]
 
    for (let facet of facets) {
      let aggregation = aggregations[facet]
      if (aggregation) {
-       // Get the selected values for this facet as specified in the URL.
+       // Get the selected values for this facet as specified in the URL
+       // and add a selected flag to those buckets.
        const selectedVals = getSelectedFacetVals(facet)
-       // Add a selected flag to the buckets.
        aggregation.buckets.forEach(bucket => {
          bucket.selected = selectedVals.includes(bucket.key)
        })
-       facetsEl.appendChild(FacetElement(facet, aggregation.buckets, selectedVals))
+       facetsEl.appendChild(FacetElement(facet, aggregation.buckets))
      }
    }
- }
-
- function CollectionFacetElement (num_other_collections) {
-   /* A cross-collection search call-to-action element that resembles
-      a facet.
-    */
-   const BUCKETS =  [
-     {key: "{{ site.title }}",
-      selected: true,
-     },
-     {key: `Search across (${num_other_collections}) additional collections from <br>{{ site.organization-name }}`,
-      selected: false,
-     },
-   ]
-   // Clone the facet template element.
-   const facetTemplate = document.getElementById("facet")
-   const facetEl = clone(facetTemplate)
-
-   facetEl.querySelector(".facet-name")
-     .childNodes[0].textContent = "Collection"
-
-   // Add all the facet values rows.
-   const facetValuesEl = facetEl.querySelector(".facet-values")
-   const facetValueTemplate = document.getElementById("facet-value")
-   BUCKETS.forEach((bucket, i) => {
-     // Clone the facet-value template element.
-     const facetValueEl = clone(facetValueTemplate)
-
-     // Remove the top border on the first, collection-name row
-     // and make it appear disabled.
-     if (i === 0) {
-       facetValueEl.style.borderTop = "none"
-       facetValueEl.style.backgroundColor = "#ddd"
-       facetValueEl.style.cursor = "not-allowed"
-     } else {
-       // Link to the multi-collection search page.
-       facetValueEl.innerHTML = `<a href="{{ site.baseurl }}/multi-collection-search${location.search}">${facetValueEl.innerHTML}</a>`
-       facetValueEl.style.textDecoration = "underline"
-
-     }
-
-     // Set the facet value name.
-     facetValueEl.querySelector(".facet-value-name").innerHTML =
-       bucket.key
-
-     // Append the facet value to the values container.
-     facetValuesEl.appendChild(facetValueEl)
-   })
-
-   // Remove the collapse/expand and show-more elements.
-   facetEl.querySelector(".collapsed-icon").remove()
-   facetEl.querySelector(".show-more").remove()
-
-   return facetEl
  }
 
 
@@ -466,14 +421,6 @@
    }
 
    renderFacets(response.aggregations)
-
-   // If other collections are available, add collections psuedo-facet.
-   const num_other_collections = indices_directory.length
-   if (num_other_collections > 0) {
-     document.querySelector("#facets")
-             .prepend(CollectionFacetElement(indices_directory.length))
-   }
-
  }
 
  function getSearchParams () {
@@ -561,9 +508,86 @@
    hideAdvancedSearchOptions()
  }
 
+ async function maybeInitCollectionFacetElement () {
+   /* If the search server hosts multiple collection indices,
+      initialize the global collectionFacetElement variable with a
+      FacetElement object to be prepended to the list of normal
+      search facet elements.
+    */
+   // Get the directory of other available indices.
+   indicesDirectory = await getIndicesDirectory()
+
+   // If there's only one collection available (presumably the current),
+   // leave the collection facet element unitialized.
+   if (indicesDirectory.length === 1) {
+     return
+   }
+
+   // Determine whether this script is executing on the collection-specific
+   // or multi-collection search page.
+   const isMultiSearchPage = "{{ page.layout }}" === "multi-collection-search"
+
+   // If the current page is the multi-collection-search page, set the
+   // facet buckets to display all of the available indices.
+   // If the current page is the collection-specific search page,
+   // display the current index as selected / disabled as the first value,
+   // and a link to the multi-collection search page as the second.
+
+   let facetBuckets
+   if (isMultiSearchPage) {
+     facetBuckets = indicesDirectory.map(x => ({ key: x.title }))
+   } else {
+     facetBuckets = [
+       {key: "{{ site.title }}",
+        selected: true,
+       },
+       {key: `Search across (${indicesDirectory.length}) additional collections from <br>{{ site.organization-name }}`,
+        selected: false,
+       },
+     ]
+   }
+
+   const el = FacetElement("collection", facetBuckets)
+
+   // If the current page is the collection-specific search page,
+   // modify the style of the first facet value (i.e. the current
+   // collection's name) to appear selected but untoggleable and
+   // wrap the second link (i.e. the summary of how many other
+   // collections are available to search) in a <a> that links to
+   // the multi-collection search page.
+   if (!isMultiSearchPage) {
+     const [ collectionEl, multiCollectionEl ] = el.querySelectorAll(".facet-value")
+     // Modify the current collection row style, remove the "x" doc count,
+     // and capture clicks.
+     collectionEl.style.backgroundColor = "#888"
+     collectionEl.style.cursor = "not-allowed"
+     collectionEl.querySelector(".facet-value-doc-count").innerHTML = ""
+     collectionEl.addEventListener("click", e => e.stopPropagation())
+     // Wrap the multi-collection content in a <a> that redirects to the
+     // multi-collection search page and disable the capture clicks.
+     multiCollectionEl.addEventListener("click", e => e.stopPropagation())
+     const multiNameEl = multiCollectionEl.querySelector(".facet-value-name")
+     // Get any current query search param.
+     const q = new URLSearchParams(location.search).get("q")
+     // Create a new search params object initialized with a filter on the
+     // current collection.
+     const params = new URLSearchParams({ "collection[]": "{{ site.title }}" })
+     // Add the query param if set.
+     if (q !== null) {
+       params.set("q", q)
+     }
+     multiNameEl.innerHTML =
+       `<a href="{{ site.baseurl }}/multi-collection-search?${params.toString()}">
+          ${ multiNameEl.innerHTML }
+        </a>
+       `
+   }
+
+   collectionFacetElement = el
+ }
+
  document.addEventListener("DOMContentLoaded", async () => {
-   // Get the directory of other available indics.
-   indices_directory = await get_indices_directory()
+   maybeInitCollectionFacetElement()
 
    // Get the search params and do the search.
    const params = getSearchParams()
