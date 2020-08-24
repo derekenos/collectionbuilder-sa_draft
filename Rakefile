@@ -104,11 +104,17 @@ def load_config env = :DEVELOPMENT
   # Load the search configuration.
   search_config = CSV.parse(File.read($SEARCH_CONFIG_PATH), headers: true)
 
+  # Generate the collection URL by concatenating 'url' with 'baseurl'.
+  stripped_url = (config['url'] || '').delete_suffix '/'
+  stripped_baseurl = (config['baseurl'] || '').delete_prefix('/').delete_suffix('/')
+  collection_url = "#{stripped_url}/#{stripped_baseurl}".delete_suffix '/'
+
   retval = {
     :metadata => metadata,
     :search_config => search_config,
     :collection_title => config['title'],
     :collection_description => config['description'],
+    :collection_url => collection_url,
     :elasticsearch_protocol => config['elasticsearch-protocol'],
     :elasticsearch_host => config['elasticsearch-host'],
     :elasticsearch_port => config['elasticsearch-port'],
@@ -119,7 +125,7 @@ def load_config env = :DEVELOPMENT
   # Add environment-dependent values.
   if env == :DEVELOPMENT
     # If present, strip out the baseurl prefix.
-    if digital_objects_location.start_with? config['baseurl']
+    if config['baseurl'] and digital_objects_location.start_with? config['baseurl']
       digital_objects_location = digital_objects_location[config['baseurl'].length..-1]
       # Trim any leading slash from the objects directory
       digital_objects_location.delete_prefix! '/'
@@ -148,10 +154,10 @@ def get_es_user_credentials user = "admin"
   creds = YAML.load_file $ES_CREDENTIALS_PATH
   if !creds.include? "users"
     raise "\"users\" key not found in: #{$ES_CREDENTIALS_PATH}"
-  elsif !creds["users"].include? user
+  elsif !creds['users'].include? user
     raise "No credentials found for user: \"#{user}\""
   else
-    return creds["users"][user]
+    return creds['users'][user]
   end
 end
 
@@ -177,7 +183,7 @@ end
 
 desc "Build site with production env"
 task :deploy do
-  ENV["JEKYLL_ENV"] = "production"
+  ENV['JEKYLL_ENV'] = "production"
   sh "jekyll build --config _config.yml,_config.production.yml"
 end
 
@@ -462,41 +468,61 @@ end
 ###############################################################################
 
 desc "Generate the file that we'll use to populate the Elasticsearch index via the Bulk API"
-task :generate_es_bulk_data do
+task :generate_es_bulk_data, [:env] do |t, args|
+  args.with_defaults(
+    :env => "PRODUCTION"
+  )
+  env = args.env.to_sym
 
-  config = load_config :DEVELOPMENT
+  config = load_config env
+
+  # Get the development config for local directory info.
+  dev_config = load_config :DEVELOPMENT
 
   # Create a search config <fieldName> => <configDict> map.
   field_config_map = {}
-  config[:search_config].each do |row|
-    field_config_map[row["field"]] = row
+  dev_config[:search_config].each do |row|
+    field_config_map[row['field']] = row
   end
 
-  output_dir = config[:elasticsearch_dir]
+  output_dir = dev_config[:elasticsearch_dir]
   $ensure_dir_exists.call output_dir
   output_path = File.join([output_dir, $ES_BULK_DATA_FILENAME])
   output_file = File.open(output_path, mode: "w")
-  index_name = config[:elasticsearch_index]
+  index_name = dev_config[:elasticsearch_index]
   num_items = 0
-  config[:metadata].each do |item|
+  dev_config[:metadata].each do |item|
     # Remove any fields with an empty value.
     item.delete_if { |k, v| v.nil? }
 
     # Split each multi-valued field value into a list of values.
     item.each do |k, v|
-      if field_config_map.has_key? k and field_config_map[k]["multi-valued"] == "true"
+      if field_config_map.has_key? k and field_config_map[k]['multi-valued'] == "true"
         item[k] = (v or "").split(";").map { |s| s.strip }
       end
     end
 
-    item_text_path = File.join([config[:extracted_pdf_text_dir], "#{item["filename"]}.txt"])
+    item['url'] = "#{config[:collection_url]}/items/#{item['objectid']}.html"
+    item['collectionUrl'] = config[:collection_url]
+    item['collectionTitle'] = config[:collection_title]
+
+    # Add the thumbnail image URL.
+    if env == :DEVELOPMENT
+      item['thumbnailContentUrl'] = "#{File.join(config[:thumb_images_dir], item['objectid'])}_th.jpg"
+    else
+      item['thumbnailContentUrl'] = "#{config[:remote_thumb_images_url]}/#{item['objectid']}_th.jpg"
+    end
+
+    # If a extracted text file exists for the item, add the content of that file to the item
+    # as the "full_text" property.
+    item_text_path = File.join([dev_config[:extracted_pdf_text_dir], "#{item['filename']}.txt"])
     if File::exists? item_text_path
       full_text = File.read(item_text_path, mode: "r", encoding: "utf-8")
-      item["full_text"] = full_text
+      item['full_text'] = full_text
     end
 
     # Write the action_and_meta_data line.
-    doc_id = item["objectid"]
+    doc_id = item['objectid']
     output_file.write("{\"index\": {\"_index\": \"#{index_name}\", \"_id\": \"#{doc_id}\"}}\n")
 
     # Write the source line.
@@ -539,10 +565,26 @@ task :generate_es_index_settings do
         }
       ],
       properties: {
-        # Always include objectid.
+        # Define the set of static properties.
         objectid: {
           type: "text",
           index: false
+        },
+        url: {
+          type: "text",
+          index: false,
+        },
+        thumbnailContentUrl: {
+          type: "text",
+          index: false,
+        },
+        collectionTitle: {
+          type: "text",
+          index: false,
+        },
+        collectionUrl: {
+          type: "text",
+          index: false,
         }
       }
     }
@@ -565,19 +607,19 @@ task :generate_es_index_settings do
       raise msg
     end
 
-    invalid_bool_value_keys = BOOL_FIELD_DEF_KEYS.reject { |k| ["true", "false"].include? field_def[k] }
+    invalid_bool_value_keys = BOOL_FIELD_DEF_KEYS.reject { |k| ['true', 'false'].include? field_def[k] }
     if !invalid_bool_value_keys.empty?
       raise "Expected true/false value for: #{invalid_bool_value_keys.join(", ")}"
     end
 
-    if field_def["index"] == "false" and
-      (field_def["facet"] == "true" or field_def['multi-valued'] == "true")
-      raise "Field (#{field_def["field"]}) has index=false but other index-related "\
+    if field_def['index'] == "false" and
+      (field_def['facet'] == "true" or field_def['multi-valued'] == "true")
+      raise "Field (#{field_def['field']}) has index=false but other index-related "\
             "fields (e.g. facet, multi-valued) specified as true"
     end
 
     if field_def['multi-valued'] == "true" and field_def['facet'] != "true"
-      raise "If field (#{field_def["field"]}) specifies multi-valued=true, it "\
+      raise "If field (#{field_def['field']}) specifies multi-valued=true, it "\
             "also needs to specify facet=true"
     end
   end
@@ -594,8 +636,8 @@ task :generate_es_index_settings do
     mapping = {
       type: "text"
     }
-    if field_def["facet"]
-      mapping["fields"] = {
+    if field_def['facet']
+      mapping['fields'] = {
         raw: {
           type: "keyword"
         }
@@ -618,8 +660,8 @@ task :generate_es_index_settings do
   config[:search_config].each do |field_def|
     assert_field_def_is_valid(field_def)
     convert_field_def_bools(field_def)
-    if field_def["index"]
-      index_settings[:mappings][:properties][field_def["field"]] = get_mapping(field_def)
+    if field_def['index']
+      index_settings[:mappings][:properties][field_def['field']] = get_mapping(field_def)
     end
   end
 
@@ -672,7 +714,7 @@ def make_es_request config, user, method, path, body=nil, content_type=nil
   # basic auth.
   if user != nil
     creds = get_es_user_credentials user
-    req.basic_auth creds["username"], creds["password"]
+    req.basic_auth creds['username'], creds['password']
   end
 
   # Set any specified body.
