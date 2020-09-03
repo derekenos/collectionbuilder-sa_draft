@@ -50,6 +50,13 @@ $ES_DIRECTORY_INDEX_SETTINGS = {
 
 $ensure_dir_exists = ->(dir) { if !Dir.exists?(dir) then Dir.mkdir(dir) end }
 
+def assert_env_arg_is_valid env, valid_envs=["DEVELOPMENT", "PRODUCTION_PREVIEW", "PRODUCTION"]
+  if !valid_envs.include? env
+    raise "Invalid environment value: \"#{env}\". " +
+          "Please specify one of: #{valid_envs}"
+  end
+end
+
 def prompt_user_for_confirmation message
   response = nil
   while true do
@@ -185,6 +192,22 @@ desc "Build site with production env"
 task :deploy do
   ENV['JEKYLL_ENV'] = "production"
   sh "jekyll build --config _config.yml,_config.production.yml"
+end
+
+
+###############################################################################
+# TASK: serve
+###############################################################################
+
+desc "Run the local web server"
+task :serve, [:env] do |t, args|
+  args.with_defaults(
+    :env => "DEVELOPMENT"
+  )
+  assert_env_arg_is_valid args.env, [ 'DEVELOPMENT', 'PRODUCTION_PREVIEW' ]
+  env = args.env.to_sym
+  config_filenames = $ENV_CONFIG_FILENAMES_MAP[env]
+  sh "jekyll s --config #{config_filenames.join(',')} -H 0.0.0.0"
 end
 
 
