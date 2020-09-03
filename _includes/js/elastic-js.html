@@ -276,7 +276,7 @@
    let paramVals = params.getAll(paramKey)
 
    if (paramVals.includes(value)) {
-     paramVals.pop(value)
+     paramVals = paramVals.filter(x => x !== value)
    } else {
      paramVals.push(value)
    }
