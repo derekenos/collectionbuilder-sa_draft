@@ -290,9 +290,16 @@
    search(getSearchParams())
  }
 
+ const getSelectedFacetVals = name =>
+   new URLSearchParams(location.search).getAll(`${name}[]`)
+
  function FacetElement (facetName, buckets) {
-   // Sort the selected values to the top, by doc count descending.
-   buckets.sort((a, b) => (a.selected ? 0 : 1) - (b.selected ? 0 : 1))
+   // Sort the value by the order in which they were applied, as indicated
+   // by the search URL params.
+   const selectedFacetVals = getSelectedFacetVals(facetName).reverse()
+   buckets.sort(
+     (a, b) => selectedFacetVals.indexOf(b.key) - selectedFacetVals.indexOf(a.key)
+   )
 
    // Clone the facet template element.
    const facetTemplate = document.getElementById("facet")
@@ -421,9 +428,6 @@
 
    return facetEl
  }
-
- const getSelectedFacetVals = name =>
-   new URLSearchParams(location.search).getAll(`${name}[]`)
 
  function renderFacets (aggregations) {
    // Render the facet elements for the specified Elasticsearch aggregation
