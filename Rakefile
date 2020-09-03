@@ -261,7 +261,7 @@ task :generate_derivatives, [:thumbs_size, :small_size, :density, :missing, :im_
       end
 
     # Get the lowercase filename without any leading path and extension.
-    base_filename = File.basename(filename)[0..-(extname.length + 1)].downcase
+    base_filename = File.basename(filename, extname).downcase
 
     # Generate the thumb image.
     thumb_filename=File.join([thumb_images_dir, "#{base_filename}_th.jpg"])
@@ -478,7 +478,9 @@ task :extract_pdf_text do
   # Extract the text.
   num_items = 0
   Dir.glob(File.join([config[:objects_dir], "*.pdf"])).each do |filename|
-    output_filename = File.join([output_dir, "#{File.basename filename}.txt"])
+    output_filename = File.join(
+      [output_dir, "#{File.basename(filename, File.extname(filename))}.txt"]
+    )
     system("pdftotext -enc UTF-8 -eol unix -nopgbrk #{filename} #{output_filename}")
     num_items += 1
   end
@@ -539,7 +541,7 @@ task :generate_es_bulk_data, [:env] do |t, args|
 
     # If a extracted text file exists for the item, add the content of that file to the item
     # as the "full_text" property.
-    item_text_path = File.join([dev_config[:extracted_pdf_text_dir], "#{item['filename']}.txt"])
+    item_text_path = File.join([dev_config[:extracted_pdf_text_dir], "#{item['objectid']}.txt"])
     if File::exists? item_text_path
       full_text = File.read(item_text_path, mode: "r", encoding: "utf-8")
       item['full_text'] = full_text
