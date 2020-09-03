@@ -141,8 +141,8 @@ def load_config env = :DEVELOPMENT
     # Environment is PRODUCTION_PREVIEW or PRODUCTION.
     retval.update({
       :remote_objects_url => digital_objects_location,
-      :remote_thumb_images_url => File.join([digital_objects_location, 'thumbs']),
-      :remote_small_images_url => File.join([digital_objects_location, 'small']),
+      :remote_thumb_images_url => "#{digital_objects_location}/thumbs",
+      :remote_small_images_url => "#{digital_objects_location}/small",
     })
   end
 
@@ -470,7 +470,7 @@ end
 desc "Generate the file that we'll use to populate the Elasticsearch index via the Bulk API"
 task :generate_es_bulk_data, [:env] do |t, args|
   args.with_defaults(
-    :env => "PRODUCTION"
+    :env => "DEVELOPMENT"
   )
   env = args.env.to_sym
 
