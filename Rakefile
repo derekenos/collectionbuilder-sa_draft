@@ -495,6 +495,7 @@ task :generate_es_bulk_data, [:env] do |t, args|
   args.with_defaults(
     :env => "DEVELOPMENT"
   )
+  assert_env_arg_is_valid args.env
   env = args.env.to_sym
 
   config = load_config env
