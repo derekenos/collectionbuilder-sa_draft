@@ -300,8 +300,13 @@
 
    // Set the facet name by updating the text node while leaving the
    // collapsed-icon <span> alone.
-   facetEl.querySelector(".facet-name")
-     .childNodes[0].textContent = snakeToTitleCase(facetName)
+   // Special-case the collection facet to have a more descriptive title.
+   const facetNameEl = facetEl.querySelector(".facet-name").childNodes[0]
+   if (facetName === "collection" && IS_MULTI_SEARCH) {
+     facetNameEl.textContent = "Include results from:"
+   } else {
+     facetNameEl.textContent = snakeToTitleCase(facetName)
+   }
 
    // Add all the facet values rows.
    const facetValuesEl = facetEl.querySelector(".facet-values")
@@ -321,17 +326,25 @@
      // Set the properties whose value is dependent on whether
      // the facet value is currently selected.
      const facetValueDocCountEl = facetValueEl.querySelector(".facet-value-doc-count")
-     if (bucket.selected) {
+     if (!bucket.selected) {
+       facetValueDocCountEl.textContent = bucket.doc_count
+     } else {
        facetValueEl.style.backgroundColor = "#17a2b8"
        facetValueEl.style.color = "#fff"
-       facetValueDocCountEl.textContent = "x"
-     } else {
-       facetValueDocCountEl.textContent = bucket.doc_count
+       // Special-case the collection facet to always show the doc count.
+       if (facetName === "collection") {
+         facetValueDocCountEl.textContent = bucket.doc_count
+       } else {
+         facetValueDocCountEl.textContent = "x"
+       }
      }
 
-     // Set the facet value name.
-     facetValueEl.querySelector(".facet-value-name").innerHTML =
-       bucket.key.length ? bucket.key : "&lt;unknown&gt;"
+     // Set the facet value name and title attribute to show full value
+     // on hover when truncated.
+     const facetValueName = bucket.key.length ? bucket.key : "&lt;unknown&gt;"
+     const facetValueNameEl = facetValueEl.querySelector(".facet-value-name")
+     facetValueNameEl.innerHTML = facetValueName
+     facetValueNameEl.setAttribute("title", facetValueName)
 
      // Append the facet value to the values container.
      facetValuesEl.appendChild(facetValueEl)
@@ -347,7 +360,7 @@
 
    // Hide values that exceed the number of default visible.
    const toggleShowMore = () => {
-     moreRowEls.forEach(el => el.style.display = showMore ? "block" : "none")
+     moreRowEls.forEach(el => el.style.display = showMore ? "flex" : "none")
      moreOrFewerEl.innerText = `show ${showMore ? "fewer" : "more"}`
      showMore = !showMore
    }
@@ -629,7 +642,7 @@
        {key: "{{ site.title }}",
         selected: true,
        },
-       {key: `Search across (${indicesDirectory.length}) additional collections from <br>{{ site.organization-name }}`,
+       {key: `Search ${indicesDirectory.length} additional collections from <br>{{ site.organization-name }}`,
         selected: false,
        },
      ]

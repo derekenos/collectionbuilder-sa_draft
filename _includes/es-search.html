@@ -66,7 +66,8 @@
               border: solid #343a40 1px;
               border-radius: .25rem;
               overflow: hidden;
-              margin-bottom: 2em;">
+              margin-bottom: 2em;
+              width: 28em;">
     <h1 class="facet-name"
         style="font-size: inherit;
                background-color: #343a40;
@@ -109,9 +110,15 @@
               position: relative;
               cursor: pointer;
               color: #444;
-              background-color: #fff;">
-    <span class="facet-value-name" style="white-space: nowrap; margin-right: 2em;"></span>
-    <span class="facet-value-doc-count" style="position: absolute; right: 1em;"></span>
+              background-color: #fff;
+              display: flex;">
+    <span class="facet-value-name"
+          style="white-space: nowrap;
+                 overflow: hidden;
+                 text-overflow: ellipsis;
+                 padding-right: 1em;">
+    </span>
+    <span class="facet-value-doc-count" style="margin-left: auto;"></span>
   </div>
 </template>
 
