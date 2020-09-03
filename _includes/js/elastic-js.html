@@ -62,11 +62,8 @@
    return null
  }
 
- async function executeQuery (searchParams) {
-   /* Perform the search and return the response, or return null if something
-      goes wrong (e.g. server not reachable, response not JSON, etc.)
-    */
 
+ function generateSearchQuery (searchParams) {
    // Init the query context to a match_all.
    let queryContext = { match_all: {} }
 
@@ -145,14 +142,6 @@
      }
    }
 
-   // Add the collection aggregation.
-   query.aggs['collection'] = {
-     terms: {
-       field: "_index",
-       size: indicesDirectory.length
-     }
-   }
-
    // Specify which document fields we want returned.
    query._source = [
      "objectid",
@@ -162,6 +151,14 @@
      "collectionUrl",
    ].concat(ALL_FIELD_NAMES)
 
+   return [ indices, query ]
+ }
+
+
+  async function executeQuery (indices, query) {
+   /* Perform the search and return the response, or return null if something
+      goes wrong (e.g. server not reachable, response not JSON, etc.)
+    */
    let fetchResponse
    try {
      fetchResponse = await fetch(
@@ -179,14 +176,14 @@
      return null
    }
 
-   let searchResponse
+   let data
    // If the content is not JSON, abort, otherwise attempt to decode it.
    if (!fetchResponse.headers.get("Content-Type")
                      .startsWith("application/json")) {
      return null
    } else {
      try {
-       searchResponse = await fetchResponse.json()
+       data = await fetchResponse.json()
      } catch (e) {
        return null
      }
@@ -194,17 +191,54 @@
 
    if (!fetchResponse.ok) {
      // If it looks like an ES error, print the 'reason' to the console.
-     if (searchResponse.error && searchResponse.error.reason) {
-       console.error(`Search error: ${searchResponse.error.reason}`)
+     if (data.error && data.error.reason) {
+       console.error(`Search error: ${data.error.reason}`)
      }
      return null
    }
 
-   // Convert _index aggregation values to the index titles and ensure
-   // that all available indices are included in the aggregation.
-   for (let bucket of searchResponse.aggregations.collection.buckets) {
+   return data
+ }
+
+
+ async function executeSearch (searchParams) {
+   /* Execute a search and all-indices count for the given URL search params.
+    */
+   const [ searchIndices, searchQuery ] = generateSearchQuery(searchParams)
+   const allIndices = Array.from(indicesDirectoryIndexTitleMap.keys())
+
+   // Create a count query that counts hits across all indices and returns
+   // no documents.
+   const countQuery = {
+     size: 0,
+     query: searchQuery.query,
+     aggs: {
+       collection: {
+         terms: {
+           field: "_index",
+           size: allIndices.length
+         }
+       }
+     }
+   }
+
+   const [ searchResponse, countResponse ] = await Promise.all([
+     executeQuery(searchIndices, searchQuery),
+     executeQuery(allIndices, countQuery),
+   ])
+
+   // Augment the search response with the count response collection aggregation.
+   const collectionAgg = countResponse.aggregations.collection
+   // Add zero-count buckets for any unrepresented indices.
+   const representedIndices = collectionAgg.buckets.map(({ key }) => key)
+   for (const indice of allIndices.filter(x => !representedIndices.includes(x))) {
+     collectionAgg.buckets.push({ key: indice, doc_count: 0 })
+   }
+   // Swap the indice names with their titles.
+   for (const bucket of collectionAgg.buckets) {
      bucket.key = indicesDirectoryIndexTitleMap.get(bucket.key)
    }
+   searchResponse.aggregations.collection = collectionAgg
 
    return searchResponse
  }
@@ -475,7 +509,7 @@
 
  /* search function */
  async function search (searchParams) {
-   const response = await executeQuery(searchParams)
+   const response = await executeSearch(searchParams)
 
    // Call renderResults() before we check for a numm response in order to
    // empty the results table in the event of an error.
