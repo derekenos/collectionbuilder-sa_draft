@@ -256,6 +256,8 @@
 
  const clone = tmplEl => tmplEl.content.cloneNode(true).children[0]
 
+ const removeChildren = el => Array.from(el.children).forEach(x => x.remove())
+
  function createElement (domString) {
    // Return an HTML element object for the given DOM string.
    const wrapper = document.createElement("div")
@@ -429,11 +431,35 @@
    return facetEl
  }
 
+ function clearFacetValueSelections () {
+   // Remove all applied facets/filters from the URL search params and execute
+   // the new search.
+   const params = new URLSearchParams(location.search)
+   FACETED_FIELD_NAMES.forEach(fieldName => params.delete(`${fieldName}[]`))
+   // Delete collection[] too if present.
+   params.delete("collection[]")
+   const url = new URL(location.href)
+   url.search = params
+   history.pushState(null, document.title, url)
+   search(getSearchParams())
+ }
+
+ function ClearFiltersElement (numApplied) {
+   // Clone the facet template element.
+   const el = clone(document.getElementById("clear-filters"))
+   // Replace the numApplied placeholder with the actual value.
+   el.textContent = el.textContent.replace("{numApplied}", `${numApplied}`)
+   // Add a click handler that will clear all applied filters.
+   el.addEventListener("click", () => clearFacetValueSelections())
+   return el
+ }
+
+
  function renderFacets (aggregations) {
    // Render the facet elements for the specified Elasticsearch aggregation
    // results.
    const facetsEl = document.querySelector("#facets")
-   Array.from(facetsEl.children).forEach(el => el.remove())
+   removeChildren(facetsEl)
 
    // Maybe include the collection facet.
    if (nonMultiCollectionFacetEl !== undefined) {
@@ -445,17 +471,27 @@
      fieldNames = [ "collection" ].concat(fieldNames)
    }
 
+   let numSelected = 0
    for (let facet of fieldNames) {
      let aggregation = aggregations[facet]
      if (aggregation && aggregation.buckets.length > 0) {
        // Get the selected values for this facet as specified in the URL
        // and add a selected flag to those buckets.
        const selectedVals = getSelectedFacetVals(facet)
+       // Update the anySelected flag.
+       numSelected += selectedVals.length
        aggregation.buckets.forEach(bucket => {
          bucket.selected = selectedVals.includes(bucket.key)
        })
        facetsEl.appendChild(FacetElement(facet, aggregation.buckets))
      }
+   }
+
+   // If any facet values are selected, display the clear-filters buttons.
+   const clearFiltersWrapperEl = document.querySelector(".clear-filters")
+   removeChildren(clearFiltersWrapperEl)
+   if (numSelected > 0) {
+     clearFiltersWrapperEl.appendChild(ClearFiltersElement(numSelected))
    }
  }
 
@@ -468,7 +504,7 @@
    // Get the results table and remove any existing children.
    const resultsTableEl = document.getElementById("results")
    const resultsTableBodyEl = resultsTableEl.querySelector("tbody")
-   Array.from(resultsTableBodyEl.children).forEach(el => el.remove())
+   removeChildren(resultsTableBodyEl)
 
    if (response === null) {
      return
