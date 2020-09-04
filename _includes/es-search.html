@@ -47,9 +47,9 @@
         <table id="results" class="table table-responsive">
           <thead>
             <tr>
-              <td style="border-top: none;">
-                <h4 class="num-hits">
-                </h4>
+              <td style="border-top: none; display: flex;">
+                <h4 class="num-hits" style="display: inline;"></h4>
+                <div class="search-pager" style="display: inline-block; margin-left: auto;"></div>
               </td>
             </tr>
           </thead>
@@ -157,4 +157,22 @@
 <template id="result-details-item">
   <p class="ml-3 mb-1">
   </p>
+</template>
+
+<template id="search-pager-list-item">
+  <li style="display: inline;"></li>
+</template>
+
+<template id="search-pager">
+  <div style="display: inline-block; font-size: .8em;">
+    <label for="results-per-page">Show</label>
+    <select name="results-per-page"
+            style="background-color: #fff;">
+      <option value="10">10</option>
+      <option value="25">25</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+    </select>
+    <ol style="display: inline-block;"></ol>
+  </div>
 </template>

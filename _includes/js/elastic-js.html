@@ -496,6 +496,22 @@
  }
 
 
+ function SearchPagerElement (numHits, start, size) {
+   const el = clone(document.getElementById("search-pager"))
+
+   const listItemTemplate = document.getElementById("search-pager-list-item")
+   const listEl = el.querySelector('ol')
+
+   for (const itemHTML of [ "&laquo;", "&raquo;" ]) {
+     const itemEl = clone(listItemTemplate)
+     itemEl.innerHTML = itemHTML
+     listEl.appendChild(itemEl)
+   }
+
+   return el
+ }
+
+
  //////////////////////////////////////////////////////////////////////////////
  // Search Result Rendering
  //////////////////////////////////////////////////////////////////////////////
@@ -513,7 +529,14 @@
    // Show the number of hits.
    const numHits = response.hits.total.value
    resultsTableEl.querySelector(".num-hits").textContent =
-     `${numHits} Result${numHits === 1 ? "" : "s"} found`
+     `${numHits} Result${numHits > 1 ? "s" : ""} found`
+
+   // Add the search pager element.
+   const searchPagerEl = document.querySelector(".search-pager")
+   removeChildren(searchPagerEl)
+   if (numHits > 0) {
+     searchPagerEl.appendChild(SearchPagerElement(numHits, null, null))
+   }
 
    // Add each result to the results table.
    const resultTemplate = document.getElementById("result")
@@ -596,7 +619,6 @@
    if (params.has("fields")) {
      params.set("fields", params.get("fields").split(","))
    }
-
    return params
  }
 
