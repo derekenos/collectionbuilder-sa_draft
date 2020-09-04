@@ -563,6 +563,8 @@
    sizeEl.addEventListener("change", e => {
      params = new URLSearchParams(location.search)
      params.set("size", sizeEl.value)
+     // Reset start to 0 to avoid wierd paging issues.
+     params.delete("start")
      updateUrlSearchParams(params)
      search(getSearchParams())
    })
