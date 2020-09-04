@@ -47,9 +47,8 @@
         <table id="results" class="table table-responsive">
           <thead>
             <tr>
-              <td style="border-top: none;">
-                <h4 class="num-hits">
-                </h4>
+              <td style="border-top: none; padding-bottom: 0;">
+                <div class="results-header"></div>
               </td>
             </tr>
           </thead>
@@ -157,4 +156,53 @@
 <template id="result-details-item">
   <p class="ml-3 mb-1">
   </p>
+</template>
+
+<template id="results-pager-list-item">
+    <li style="display: inline;">
+      <button style="border: 1px solid #ced4da;
+                     background-color: transparent;
+                     line-height: 1em;
+                     padding: .4em .6em;">
+      </button>
+    </li>
+</template>
+
+<template id="results-pager-list-item-ellipsis">
+  <li style="display: inline;
+             position: relative;
+             top: .4em;">
+    &#8230;
+  </li>
+</template>
+
+<template id="results-header">
+  <div style="display: flex;">
+    <h4 class="num-hits"
+        style="display: inline;
+               white-space: nowrap;">
+    </h4>
+    <span style="font-size: .8em;
+                 padding-left: 4em;
+                 margin-left: auto;
+                 white-space: nowrap;">
+      <label for="results-per-page">Show</label>
+      <select name="results-per-page"
+              style="background-color: #fff;">
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+    <ol style="display: inline-block;
+               margin-bottom: 0;
+               font-size: .8em;
+               white-space: nowrap">
+    </ol>
+  </div>
+</template>
+
+<template id="results-header-error">
+  <span class="error" style="color: #f00;"></h4>
 </template>
