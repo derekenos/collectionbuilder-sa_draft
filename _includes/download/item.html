@@ -1,1 +1,8 @@
-{{ site.digital-objects }}/{% if item.title %}{{ item.filename }}{% else %}{{ page.filename }}{% endif %}
+{%- if item.title -%}{%- assign obj = item -%}{%- else -%}{%- assign obj = page -%}{%- endif -%}
+{%- case obj.format -%}
+{%- when "application/pdf" -%}
+{%- assign extension = ".pdf" -%}
+{%- when "image/jpg" -%}
+{%- assign extension = ".jpg" -%}
+{%- endcase -%}
+{{ site.digital-objects }}/{{ obj.objectid }}{{ extension }}

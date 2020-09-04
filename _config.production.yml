@@ -3,6 +3,12 @@
 url: https://www.lib.uidaho.edu
 
 # url to production objects store
-digital-objects: https://lchs.sfo2.cdn.digitaloceanspaces.com
+digital-objects: https://collectionbuilder.sfo2.cdn.digitaloceanspaces.com/moscon_programs_collection
+
+# Elasticsearch cluster host
+elasticsearch-protocol: https
+elasticsearch-host: cb-elasticsearch.derekenos.com
+elasticsearch-port: 9200
+elasticsearch-index: moscon_programs_collection
 
 exclude: [docs/, Rakefile, README.md, LICENSE, objects/]

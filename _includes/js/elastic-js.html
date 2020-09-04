@@ -1,6 +1,31 @@
 {%- assign fields = site.data.config-search -%}
+{%- assign facetFields = fields | where: "facet","true" -%}
+{%- assign displayFields = fields | where: "display","true" -%}
+
 <script>
- const ES_SEARCH_URL = "{{ site.elasticsearch-protocol }}://{{ site.elasticsearch-host }}:{{ site.elasticsearch-port }}/{{ site.elasticsearch-index }}/_search"
+ // Inject the search config data from the liquid template
+ // into javascript variables.
+ const ALL_FIELD_NAMES = [
+   {%- for f in fields -%}
+   "{{ f.field }}",
+   {%- endfor -%}
+ ]
+
+ const FACETED_FIELD_NAMES = [
+   {%- for f in facetFields -%}
+   "{{ f.field }}",
+   {%- endfor -%}
+ ]
+
+ const DISPLAY_FIELD_NAMES = [
+   {%- for f in displayFields -%}
+   "{{ f.field }}",
+   {%- endfor -%}
+ ]
+
+ const INDEX_NAME = "{{ site.elasticsearch-index }}"
+ const ES_SEARCH_URL_TEMPLATE = indices => `{{ site.elasticsearch-protocol }}://{{ site.elasticsearch-host }}:{{ site.elasticsearch-port }}/${indices.join(",")}/_search`
+  const ES_DIRECTORY_URL = "{{ site.elasticsearch-protocol }}://{{ site.elasticsearch-host }}:{{ site.elasticsearch-port }}/directory_/_search"
 
  // Define the maximum number of facet values to show by default.
  const MAX_NUM_VISIBLE_FACET_VALUES = 5
@@ -9,11 +34,52 @@
  // "show more".
  const MAX_NUM_FACET_VALUES = 25
 
+ // Define the default search results page size.
+ const DEFAULT_NUM_RESULTS = 10
 
- async function executeQuery (searchParams) {
-   /* Perform the search and return the response, or return null if something
-      goes wrong (e.g. server not reachable, response not JSON, etc.)
+ // Define a flag that indicates whether this is the multi-search page,
+ // as opposed to the collection-specific page.
+ const IS_MULTI_SEARCH = "{{ page.layout }}" === "multi-collection-search"
+
+ // Define global variables to store the ES server indices_directory info.
+ let indicesDirectory
+ const indicesDirectoryTitleIndexMap = new Map()
+ const indicesDirectoryIndexTitleMap = new Map()
+
+ // Define a global variable to store the collection facet element,
+ // to be initialized on document load.
+ let nonMultiCollectionFacetEl
+
+
+ async function getIndicesDirectory () {
+   /* Attempt to retrieve the indices directory from the server.
     */
+   res = await (await fetch(ES_DIRECTORY_URL))
+   if (res.status === 200) {
+     return (await res.json())
+       .hits
+       .hits
+       .map( x => x['_source'] )
+   }
+   console.error("Unable to retrieve the indices directory from the Elasticsearch server")
+   return null
+ }
+
+
+ function generateSearchQuery (searchParams) {
+   // Extract any start and size paging params from searchParams.
+   let startParam = 0
+   if (searchParams.has("start")) {
+     startParam = parseInt(searchParams.get("start"))
+     searchParams.delete("start")
+   }
+
+   let sizeParam = DEFAULT_NUM_RESULTS
+   if (searchParams.has("size")) {
+     sizeParam = parseInt(searchParams.get("size"))
+     searchParams.delete("size")
+   }
+
 
    // Init the query context to a match_all.
    let queryContext = { match_all: {} }
@@ -29,6 +95,23 @@
        }
      }
    }
+
+   // Set the array of indices to search against.
+   let indiceTitles
+   if (!IS_MULTI_SEARCH) {
+     indiceTitles = [ "{{ site.title }}" ]
+   } else {
+     indiceTitles = searchParams.get("collection[]")
+     if (!indiceTitles) {
+       // Search all collections if none is specified.
+       indiceTitles = Array.from(indicesDirectoryTitleIndexMap.keys())
+     } else {
+       // Delete collection[] from the searchParams to prevent
+       // it being specified as filter.
+       searchParams.delete("collection[]")
+     }
+   }
+   const indices = indiceTitles.map(x => indicesDirectoryTitleIndexMap.get(x))
 
    // Build the filter context.
    let filterContext = []
@@ -48,6 +131,8 @@
    }
 
    let query = {
+     from: startParam,
+     size: sizeParam,
      query: {}
    }
 
@@ -65,31 +150,44 @@
    }
 
    // Add any aggregations.
-   {% assign faceted = fields | where: "facet","true" %}
-   query.aggs = {
-     {% for f in faceted %}
-     {{ f.field }}: {
+   query.aggs = {}
+   for (let fieldName of FACETED_FIELD_NAMES) {
+     query.aggs[fieldName] = {
        terms: {
-         field: "{{ f.field }}.raw",
+         field: `${fieldName}.raw`,
          // Size defines the maximum number of buckets to return.
          size: MAX_NUM_FACET_VALUES
        }
-     },
-     {% endfor %}
+     }
    }
 
    // Specify which document fields we want returned.
    query._source = [
      "objectid",
-     {% for f in fields %}
-     "{{ f.field }}",
-     {% endfor %}
-   ]
+     "url",
+     "thumbnailContentUrl",
+     "collectionTitle",
+     "collectionUrl",
+   ].concat(ALL_FIELD_NAMES)
 
+   // Define an object to represent the paging state.
+   const paging = {
+     start: startParam,
+     size: sizeParam,
+   }
+
+   return [ indices, paging, query ]
+ }
+
+
+  async function executeQuery (indices, query) {
+   /* Perform the search and return the response, or return null if something
+      goes wrong (e.g. server not reachable, response not JSON, etc.)
+    */
    let fetchResponse
    try {
      fetchResponse = await fetch(
-       ES_SEARCH_URL,
+       ES_SEARCH_URL_TEMPLATE(indices),
        {
          method: "POST",
          headers: {
@@ -103,14 +201,14 @@
      return null
    }
 
-   let searchResponse
+   let data
    // If the content is not JSON, abort, otherwise attempt to decode it.
    if (!fetchResponse.headers.get("Content-Type")
                      .startsWith("application/json")) {
      return null
    } else {
      try {
-       searchResponse = await fetchResponse.json()
+       data = await fetchResponse.json()
      } catch (e) {
        return null
      }
@@ -118,13 +216,56 @@
 
    if (!fetchResponse.ok) {
      // If it looks like an ES error, print the 'reason' to the console.
-     if (searchResponse.error && searchResponse.error.reason) {
-       console.error(`Search error: ${searchResponse.error.reason}`)
+     if (data.error && data.error.reason) {
+       console.error(`Search error: ${data.error.reason}`)
      }
      return null
    }
 
-   return searchResponse
+   return data
+ }
+
+
+ async function executeSearch (searchParams) {
+   /* Execute a search and all-indices count for the given URL search params.
+    */
+   const [ searchIndices, paging, searchQuery ] = generateSearchQuery(searchParams)
+   const allIndices = Array.from(indicesDirectoryIndexTitleMap.keys())
+
+   // Create a count query that counts hits across all indices and returns
+   // no documents.
+   const countQuery = {
+     size: 0,
+     query: searchQuery.query,
+     aggs: {
+       collection: {
+         terms: {
+           field: "_index",
+           size: allIndices.length
+         }
+       }
+     }
+   }
+
+   const [ searchResponse, countResponse ] = await Promise.all([
+     executeQuery(searchIndices, searchQuery),
+     executeQuery(allIndices, countQuery),
+   ])
+
+   // Augment the search response with the count response collection aggregation.
+   const collectionAgg = countResponse.aggregations.collection
+   // Add zero-count buckets for any unrepresented indices.
+   const representedIndices = collectionAgg.buckets.map(({ key }) => key)
+   for (const indice of allIndices.filter(x => !representedIndices.includes(x))) {
+     collectionAgg.buckets.push({ key: indice, doc_count: 0 })
+   }
+   // Swap the indice names with their titles.
+   for (const bucket of collectionAgg.buckets) {
+     bucket.key = indicesDirectoryIndexTitleMap.get(bucket.key)
+   }
+   searchResponse.aggregations.collection = collectionAgg
+
+   return [ paging, searchResponse ]
  }
 
 
@@ -140,6 +281,8 @@
 
  const clone = tmplEl => tmplEl.content.cloneNode(true).children[0]
 
+ const removeChildren = el => Array.from(el.children).forEach(x => x.remove())
+
  function createElement (domString) {
    // Return an HTML element object for the given DOM string.
    const wrapper = document.createElement("div")
@@ -147,6 +290,12 @@
    const el = wrapper.firstChild
    wrapper.removeChild(el)
    return el
+ }
+
+ function updateUrlSearchParams(searchParams) {
+   const url = new URL(location.href)
+   url.search = searchParams
+   history.pushState(null, document.title, url)
  }
 
 
@@ -160,17 +309,17 @@
    let paramVals = params.getAll(paramKey)
 
    if (paramVals.includes(value)) {
-     paramVals.pop(value)
+     paramVals = paramVals.filter(x => x !== value)
    } else {
      paramVals.push(value)
    }
    params.delete(paramKey)
    paramVals.forEach(v => params.append(paramKey, v))
 
-   const url = new URL(location.href)
-   url.search = params
-   history.pushState(null, document.title, url)
+   // Delete any start param.
+   params.delete("start")
 
+   updateUrlSearchParams(params)
    search(getSearchParams())
  }
 
@@ -178,16 +327,12 @@
    new URLSearchParams(location.search).getAll(`${name}[]`)
 
  function FacetElement (facetName, buckets) {
-   // Get the selected values for this facet as specified in the URL.
-   const selectedVals = getSelectedFacetVals(facetName)
-
-   // Add a selected flag to the buckets.
-   buckets.forEach(bucket => {
-     bucket.selected = selectedVals.includes(bucket.key)
-   })
-
-   // Sort the selected values to the top, by doc count descending.
-   buckets.sort((a, b) => (a.selected ? 0 : 1) - (b.selected ? 0 : 1))
+   // Sort the value by the order in which they were applied, as indicated
+   // by the search URL params.
+   const selectedFacetVals = getSelectedFacetVals(facetName).reverse()
+   buckets.sort(
+     (a, b) => selectedFacetVals.indexOf(b.key) - selectedFacetVals.indexOf(a.key)
+   )
 
    // Clone the facet template element.
    const facetTemplate = document.getElementById("facet")
@@ -195,8 +340,13 @@
 
    // Set the facet name by updating the text node while leaving the
    // collapsed-icon <span> alone.
-   facetEl.querySelector(".facet-name")
-     .childNodes[0].textContent = snakeToTitleCase(facetName)
+   // Special-case the collection facet to have a more descriptive title.
+   const facetNameEl = facetEl.querySelector(".facet-name").childNodes[0]
+   if (facetName === "collection" && IS_MULTI_SEARCH) {
+     facetNameEl.textContent = "Include results from:"
+   } else {
+     facetNameEl.textContent = snakeToTitleCase(facetName)
+   }
 
    // Add all the facet values rows.
    const facetValuesEl = facetEl.querySelector(".facet-values")
@@ -216,17 +366,25 @@
      // Set the properties whose value is dependent on whether
      // the facet value is currently selected.
      const facetValueDocCountEl = facetValueEl.querySelector(".facet-value-doc-count")
-     if (bucket.selected) {
+     if (!bucket.selected) {
+       facetValueDocCountEl.textContent = bucket.doc_count
+     } else {
        facetValueEl.style.backgroundColor = "#17a2b8"
        facetValueEl.style.color = "#fff"
-       facetValueDocCountEl.textContent = "x"
-     } else {
-       facetValueDocCountEl.textContent = bucket.doc_count
+       // Special-case the collection facet to always show the doc count.
+       if (facetName === "collection") {
+         facetValueDocCountEl.textContent = bucket.doc_count
+       } else {
+         facetValueDocCountEl.textContent = "x"
+       }
      }
 
-     // Set the facet value name.
-     facetValueEl.querySelector(".facet-value-name").innerHTML =
-       bucket.key.length ? bucket.key : "&lt;unknown&gt;"
+     // Set the facet value name and title attribute to show full value
+     // on hover when truncated.
+     const facetValueName = bucket.key.length ? bucket.key : "&lt;unknown&gt;"
+     const facetValueNameEl = facetValueEl.querySelector(".facet-value-name")
+     facetValueNameEl.innerHTML = facetValueName
+     facetValueNameEl.setAttribute("title", facetValueName)
 
      // Append the facet value to the values container.
      facetValuesEl.appendChild(facetValueEl)
@@ -242,7 +400,7 @@
 
    // Hide values that exceed the number of default visible.
    const toggleShowMore = () => {
-     moreRowEls.forEach(el => el.style.display = showMore ? "block" : "none")
+     moreRowEls.forEach(el => el.style.display = showMore ? "flex" : "none")
      moreOrFewerEl.innerText = `show ${showMore ? "fewer" : "more"}`
      showMore = !showMore
    }
@@ -274,7 +432,7 @@
        rowEls.forEach((el, i) => {
          if (moreRowEls.length === 0 ||
              (!showMore || i < MAX_NUM_VISIBLE_FACET_VALUES)) {
-           el.style.display = "block"
+           el.style.display = "flex"
          }
        })
        moreOrFewerEl.style.display = "block"
@@ -304,20 +462,208 @@
    return facetEl
  }
 
+ function clearFacetValueSelections () {
+   // Remove all applied facets/filters from the URL search params and execute
+   // the new search.
+   const params = new URLSearchParams(location.search)
+   FACETED_FIELD_NAMES.forEach(fieldName => params.delete(`${fieldName}[]`))
+   // Delete collection[] and start if present.
+   params.delete("collection[]")
+   params.delete("start")
+   updateUrlSearchParams(params)
+   search(getSearchParams())
+ }
+
+ function ClearFiltersElement (numApplied) {
+   // Clone the facet template element.
+   const el = clone(document.getElementById("clear-filters"))
+   // Replace the numApplied placeholder with the actual value.
+   el.textContent = el.textContent.replace("{numApplied}", `${numApplied}`)
+   // Add a click handler that will clear all applied filters.
+   el.addEventListener("click", () => clearFacetValueSelections())
+   return el
+ }
+
+
  function renderFacets (aggregations) {
    // Render the facet elements for the specified Elasticsearch aggregation
    // results.
    const facetsEl = document.querySelector("#facets")
-   Array.from(facetsEl.children).forEach(el => el.remove())
-   // Get the list of faceted field via liquid.
-   const facets = [{% for f in faceted %}"{{ f.field }}",{% endfor %}]
+   removeChildren(facetsEl)
 
-   for (let facet of facets) {
+   // Maybe include the collection facet.
+   if (nonMultiCollectionFacetEl !== undefined) {
+     facetsEl.appendChild(nonMultiCollectionFacetEl)
+   }
+
+   let fieldNames = FACETED_FIELD_NAMES
+   if (IS_MULTI_SEARCH) {
+     fieldNames = [ "collection" ].concat(fieldNames)
+   }
+
+   let numSelected = 0
+   for (let facet of fieldNames) {
      let aggregation = aggregations[facet]
-     if (aggregation) {
+     if (aggregation && aggregation.buckets.length > 0) {
+       // Get the selected values for this facet as specified in the URL
+       // and add a selected flag to those buckets.
+       const selectedVals = getSelectedFacetVals(facet)
+       // Update the anySelected flag.
+       numSelected += selectedVals.length
+       aggregation.buckets.forEach(bucket => {
+         bucket.selected = selectedVals.includes(bucket.key)
+       })
        facetsEl.appendChild(FacetElement(facet, aggregation.buckets))
      }
    }
+
+   // If any facet values are selected, display the clear-filters buttons.
+   const clearFiltersWrapperEl = document.querySelector(".clear-filters")
+   removeChildren(clearFiltersWrapperEl)
+   if (numSelected > 0) {
+     clearFiltersWrapperEl.appendChild(ClearFiltersElement(numSelected))
+   }
+ }
+
+
+ function ResultsHeaderElement (numHits, paging) {
+   // Calculate the start/end indexes of the current results page.
+   const startIdx = paging.start + 1
+   const endIdx = startIdx + Math.min(numHits - startIdx, paging.size - 1)
+
+   // Display an error message if the start value is invalid.
+   if (endIdx < startIdx) {
+     const el = clone(document.getElementById("results-header-error"))
+     el.textContent = (
+       `Query "start" value (${paging.start}) exceeds the number of total ` +
+       `results (${numHits})`
+     )
+     return el
+   }
+
+   const el = clone(document.getElementById("results-header"))
+
+   // Display the document index range.
+   el.querySelector(".num-hits").textContent =
+     `Showing ${startIdx} - ${endIdx} of ${numHits}`
+
+   // Set the size selector value.
+   const sizeEl = el.querySelector('select')
+   // If the query specifies a non-standard size, add it as an option.
+   if (sizeEl.querySelector(`option[value="${paging.size}"]`) === null) {
+     sizeEl.appendChild(
+       createElement(
+         `<option value="${paging.size}">${paging.size}</option>`
+       )
+     )
+   }
+   // Set the value.
+   sizeEl.value = paging.size
+   // Add a size element change handler.
+   sizeEl.addEventListener("change", e => {
+     params = new URLSearchParams(location.search)
+     params.set("size", sizeEl.value)
+     // Reset start to 0 to avoid wierd paging issues.
+     params.delete("start")
+     updateUrlSearchParams(params)
+     search(getSearchParams())
+   })
+
+   // Add the paging links.
+   const listEl = el.querySelector('ol')
+   const pagerListItemTemplate = document.getElementById("results-pager-list-item")
+
+   // Add pagination button click handler.
+   listEl.addEventListener("click", e => {
+     const el = e.target
+     if (el.tagName !== "BUTTON") {
+       return
+     }
+     params = new URLSearchParams(location.search)
+     params.set("start", paging.start + parseInt(el.dataset.startDelta))
+     updateUrlSearchParams(params)
+     search(getSearchParams())
+   })
+
+   function PagingLink (html, startDelta, disabled=false) {
+     const itemEl = clone(pagerListItemTemplate)
+     const buttonEl = itemEl.querySelector("button")
+     buttonEl.innerHTML = html
+     buttonEl.dataset.startDelta = startDelta
+     buttonEl.disabled = disabled
+     return itemEl
+   }
+
+   const currentPageNum = Math.floor(startIdx / paging.size) + 1
+   const maxPageNum = Math.floor(numHits / paging.size) + 1
+
+   // Add the previous page button.
+   listEl.appendChild(
+     PagingLink("&laquo;&nbsp;prev", -paging.size, currentPageNum === 1)
+   )
+
+   // Define the max number of page number button to display on each side
+   // of the current page.
+   const MAX_NUM_REACHABLE_PAGES = 2
+
+   // Determine whether we're going to show the first and last page buttons.
+   const showFirstPageButton = currentPageNum > MAX_NUM_REACHABLE_PAGES + 1
+   const showLastPageButton = (
+     maxPageNum - currentPageNum > MAX_NUM_REACHABLE_PAGES
+   )
+
+   const ellipsisItemElTemplate =
+     document.getElementById("results-pager-list-item-ellipsis")
+
+   // Maybe add a first page button.
+   if (showFirstPageButton) {
+     listEl.appendChild(
+       PagingLink("1", -paging.start)
+     )
+     listEl.appendChild(clone(ellipsisItemElTemplate))
+   }
+
+   // Add the adjacent page buttons.
+   let pageNumDelta = -MAX_NUM_REACHABLE_PAGES
+   while (pageNumDelta <= MAX_NUM_REACHABLE_PAGES) {
+     const pageNum = currentPageNum + pageNumDelta
+     if (
+       pageNum > 0
+       && (pageNum !== 1 || !showFirstPageButton)
+       && (pageNum !== maxPageNum || !showLastPageButton)
+       && pageNum <= maxPageNum
+     ) {
+       const isCurrentPage = pageNum === currentPageNum
+       const pagingLinkEl = PagingLink(
+         `${pageNum}`,
+         paging.size * pageNum - endIdx,
+         isCurrentPage
+       )
+       // Set the style of the active page.
+       if (isCurrentPage) {
+         const buttonEl = pagingLinkEl.querySelector("button")
+         buttonEl.style.backgroundColor = "#444"
+         buttonEl.style.color = "#fff"
+       }
+       listEl.appendChild(pagingLinkEl)
+     }
+     pageNumDelta += 1
+   }
+
+   // Maybe add a last page button.
+   if (showLastPageButton) {
+     listEl.appendChild(clone(ellipsisItemElTemplate))
+     listEl.appendChild(
+       PagingLink(`${maxPageNum}`, numHits - (numHits % paging.size) - startIdx)
+     )
+   }
+
+   // Add the next page button.
+   listEl.appendChild(
+     PagingLink("next&nbsp;&raquo;", paging.size, currentPageNum === maxPageNum)
+   )
+
+   return el
  }
 
 
@@ -325,29 +671,25 @@
  // Search Result Rendering
  //////////////////////////////////////////////////////////////////////////////
 
- function renderResults (response) {
+ function renderResults (response, paging) {
    // Get the results table and remove any existing children.
    const resultsTableEl = document.getElementById("results")
    const resultsTableBodyEl = resultsTableEl.querySelector("tbody")
-   Array.from(resultsTableBodyEl.children).forEach(el => el.remove())
+   removeChildren(resultsTableBodyEl)
 
    if (response === null) {
      return
    }
 
-   // Get the display field and item path configuration via liquid.
-   const fieldNames = [
-     {%- assign displayFields = fields | where: "display","true" -%}
-     {%- for field in displayFields -%}
-     "{{ field.field }}",
-     {%- endfor -%}
-   ]
-   const itemsPath = "{{ "/items/" | relative_url }}"
-
-   // Show the number of hits.
+   // Add the results header element.
+   const resultsHeaderEl = document.querySelector(".results-header")
+   removeChildren(resultsHeaderEl)
    const numHits = response.hits.total.value
-   resultsTableEl.querySelector(".num-hits").textContent =
-     `${numHits} Result${numHits === 1 ? "" : "s"} found`
+   if (numHits > 0) {
+     resultsHeaderEl.appendChild(
+       ResultsHeaderElement(numHits, paging)
+     )
+   }
 
    // Add each result to the results table.
    const resultTemplate = document.getElementById("result")
@@ -358,22 +700,35 @@
 
      // Set the preview image href and src attributes.
      const imgContainerEl = resultEl.querySelector(".preview-image")
-     const itemUrl = `${itemsPath}${hit._source.objectid}.html`
-     imgContainerEl.querySelector("a").href = itemUrl
-     imgContainerEl.querySelector("img").src =
-       `{{ site.digital-objects }}/thumbs/${hit._source.objectid}_th.jpg`
+     imgContainerEl.querySelector("a").href = hit._source.url
+     imgContainerEl.querySelector("img").src = hit._source.thumbnailContentUrl
 
      // Set the title href and text.
      const detailsEl = resultEl.querySelector(".details")
      const titleEl = detailsEl.querySelector("a")
-     titleEl.href = itemUrl
-     titleEl.textContent = hit._source[fieldNames[0]]
+     titleEl.href = hit._source.url
+     titleEl.textContent = hit._source[DISPLAY_FIELD_NAMES[0]]
+
+     // If this is a multi-search page, add a collection link.
+     if (IS_MULTI_SEARCH) {
+       const detailsItemEl = clone(resultDetailsItemTemplate)
+       detailsItemEl.innerText = "Collection: "
+       const aEl = document.createElement("a")
+       aEl.href = hit._source.collectionUrl
+       aEl.textContent = hit._source.collectionTitle
+       detailsItemEl.appendChild(aEl)
+       detailsEl.appendChild(detailsItemEl)
+     }
 
      // Add each details field value.
-     fieldNames.slice(1).forEach(fieldName => {
+     DISPLAY_FIELD_NAMES.slice(1).forEach(fieldName => {
        const detailsItemEl = clone(resultDetailsItemTemplate)
-       detailsItemEl.textContent = hit._source[fieldName]
-       detailsEl.appendChild(detailsItemEl)
+       const fieldTitle = snakeToTitleCase(fieldName)
+       const fieldValue = hit._source[fieldName]
+       if (fieldValue !== undefined) {
+         detailsItemEl.textContent = `${fieldTitle}: ${fieldValue}`
+         detailsEl.appendChild(detailsItemEl)
+       }
      })
 
      // Append the result to the results table.
@@ -383,11 +738,11 @@
 
  /* search function */
  async function search (searchParams) {
-   const response = await executeQuery(searchParams)
+   const [ paging, response ] = await executeSearch(searchParams)
 
    // Call renderResults() before we check for a numm response in order to
    // empty the results table in the event of an error.
-   renderResults(response)
+   renderResults(response, paging)
 
    if (response === null) {
      document.querySelector("#search-error").innerText =
@@ -396,7 +751,6 @@
    }
 
    renderFacets(response.aggregations)
-
  }
 
  function getSearchParams () {
@@ -418,7 +772,6 @@
    if (params.has("fields")) {
      params.set("fields", params.get("fields").split(","))
    }
-
    return params
  }
 
@@ -472,19 +825,84 @@
    const urlSearchParams = new URLSearchParams(url.search)
    urlSearchParams.set("q", q)
    urlSearchParams.set("fields", fields.join(","))
-   url.search = urlSearchParams
-   history.pushState(null, document.title, url)
 
-   // Update the search params and do the search.
-   const params = getSearchParams()
-   params.set("q", q)
-   params.set("fields", fields)
-   search(params)
+   updateUrlSearchParams(urlSearchParams)
+   search(getSearchParams())
 
    hideAdvancedSearchOptions()
  }
 
- document.addEventListener("DOMContentLoaded", () => {
+ async function maybeInitNonMultiCollectionFacetElement () {
+   /* If the search server hosts multiple collection indices and the
+      current page is a collection-specific search page, initialize
+      the global nonMultiCollectionFacetEl variable with a
+      FacetElement object to be prepended to the list of normal
+      search facet elements.
+    */
+   // If there's only one collection available (presumably the current),
+   // or this is the multi-collection search page, leave the collection
+   // facet element unitialized.
+   if (indicesDirectory.length === 1 || IS_MULTI_SEARCH) {
+     return
+   }
+
+   const el = FacetElement(
+     "collection",
+     [
+       {key: "{{ site.title }}",
+        selected: true,
+       },
+       {key: `Search ${indicesDirectory.length} additional collections from <br>{{ site.organization-name }}`,
+        selected: false,
+       },
+     ]
+   )
+
+   // Modify the style of the first facet value (i.e. the current
+   // collection's name) to appear selected but untoggleable and
+   // define a click handler for the second link (i.e. the summary
+   // of how many other collections are available to search) that
+   // redirects the current search to the multi-collection search page.
+   const [ collectionEl, multiCollectionEl ] = el.querySelectorAll(".facet-value")
+   // Modify the current collection row style, remove the "x" doc count,
+   // and capture clicks.
+   collectionEl.style.backgroundColor = "#888"
+   collectionEl.style.cursor = "not-allowed"
+   collectionEl.querySelector(".facet-value-doc-count").innerHTML = ""
+   collectionEl.addEventListener("click", e => e.stopPropagation())
+   // Define the click handler to redirect to the multi-collection page.
+   multiCollectionEl.addEventListener("click", e => {
+     e.stopPropagation()
+     // Get any current query search param.
+     const params = new URLSearchParams(location.search)
+     // Set initial search conditions to all available indices / collections.
+     for (let indiceTitle of indicesDirectoryTitleIndexMap.keys()) {
+       params.append("collection[]", indiceTitle)
+     }
+     // Do the redirect.
+     window.location = `{{ site.baseurl }}/multi-collection-search?${params.toString()}`
+   })
+
+   nonMultiCollectionFacetEl = el
+ }
+
+ async function initIndicesDirectoryInfo () {
+   // Get a list of the indices that are available on this Elasticsearch server
+   // and save it to the global indicesDirectory variable.
+   indicesDirectory = await getIndicesDirectory()
+
+   // Init the global indice directory title/index maps.
+   indicesDirectory.forEach(({ index, title }) => {
+     indicesDirectoryIndexTitleMap.set(index, title)
+     indicesDirectoryTitleIndexMap.set(title, index)
+   })
+ }
+
+ document.addEventListener("DOMContentLoaded", async () => {
+   await initIndicesDirectoryInfo()
+
+   maybeInitNonMultiCollectionFacetElement()
+
    // Get the search params and do the search.
    const params = getSearchParams()
    search(params)

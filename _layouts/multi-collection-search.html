@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head prefix="og: http://ogp.me/ns#">
+    {% include head/head.html %}
+  </head>
+  <body>
+
+    <!-- Banner -->
+    <div class="container">
+      <div class="row align-items-center">
+        <div id="title" class="col-md-9">
+          <h1>Multi-Collection Search</h1>
+        </div>
+        <div class="col-md-3 d-none d-lg-block text-right">
+          <a class="btn btn-outline-light" href="{{ site.organization-link }}" target="_blank" rel="noopener">
+            <img class="img-fluid" src="{{ site.organization-logo-banner | relative_url }}" title="{{ site.organization-name }}" alt="{{ site.organization-name }} logo" >
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <nav class="bg-dark text-light p-1">
+      <div class="container">
+        <!-- TODO - specify the current search params in the redirect -->
+        Return to <u><a class="text-light" href="{{ site.baseurl }}/search" >{{ site.title }}</a></u> Search
+      </div>
+    </nav>
+
+    <main id="maincontent" role="main">
+      <div class="container mt-4">
+        {% include es-search.html %}
+      </div>
+
+    </main>
+    {% include footer.html %}
+    {% include foot.html %}
+    {% include scroll-to-top.html %}
+  </body>
+</html>

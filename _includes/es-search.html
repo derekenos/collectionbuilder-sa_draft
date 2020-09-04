@@ -1,0 +1,208 @@
+
+<table>
+  <tr>
+    <td id="facets" class="align-top"></td>
+    <td class="align-top" style="min-width: 24em;">
+      <div class="ml-3">
+        <form id="inner-search">
+          <input type="text" name="q" class="form-control" placeholder="Enter your search term...">
+          <div id="advanced-search" style="padding: 0 .5em 0 .5em; text-align: right;">
+            <button type="button" class="text-right"
+                    style="font-size: .7em;
+                          background-color: transparent;
+                          border: none;
+                          color: #666;
+                          padding: 0;
+                          position: relative;
+                          top: -0.5em;
+                          right: -.5em;
+                          font-weight: bold;
+                          text-decoration: underline;">
+              show advanced options
+            </button>
+            <div style="display: none; text-align: left;">
+              <h1 style="font-size: 1em;">
+                Select fields to search:
+              </h1>
+              <span style="font-size: .8em; color: #444;">
+                <input type="checkbox" name="toggle" value="toggle}" id="include-fields-toggle" />
+                <label for="include-fields-toggle">
+                  ( all / none )
+                </label>
+              </span>
+              {%- assign fields = site.data.config-search -%}
+              {% for f in fields %}
+              <div style="font-size: .8em; color: #444;">
+                <input type="checkbox" name="fields[]" value="{{ f.field }}"
+                       id="include-field-{{ f.field }}" checked />
+                <label for="include-field-{{ f.field }}">
+                  {{ f.field | replace: "_", " " | capitalize }}
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="clear-filters"></div>
+        </form>
+        <table id="results" class="table table-responsive">
+          <thead>
+            <tr>
+              <td style="border-top: none; padding-bottom: 0;">
+                <div class="results-header"></div>
+              </td>
+            </tr>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </div>
+    </td>
+  </tr>
+</table>
+
+<template id="clear-filters">
+  <button style="font-size: .8em;
+                 border: 1px solid #ced4da;
+                 border-radius: .25rem;
+                 width: 100%;
+                 margin-bottom: 2em;
+                 background-color: #f4f4f4;
+                 color: #444;
+                 padding: .2em;
+                 cursor: pointer;
+                 white-space: nowrap;">
+      Clear {numApplied} Filters
+  </button>
+</template>
+
+<template id="facet">
+  <div style="font-size: .8em;
+              border: solid #343a40 1px;
+              border-radius: .25rem;
+              overflow: hidden;
+              margin-bottom: 2em;
+              width: 28em;">
+    <h1 class="facet-name"
+        style="font-size: inherit;
+               background-color: #343a40;
+               color: #ccc;
+               padding: .5em;
+               font-weight: bold;
+               margin-bottom: 0;
+               cursor: pointer;
+               white-space: nowrap;
+               display: flex;">
+      <span class="collapsed-icon"
+            style="font-weight: bold;
+                   color: #ccc;
+                   font-family: monospace;
+                   font-size: 1.4em;
+                   margin-left: auto;">
+        -
+      </span>
+    </h1>
+    <div class="facet-values"></div>
+    <div class="show-more"
+         style="text-align: center;
+                font-size: 1em;
+                background-color: #f4f4f4;
+                color: #888;
+                padding: .1em 0;
+                cursor: pointer;">
+      show fewer
+    </div>
+  </div>
+</template>
+
+<template id="facet-value">
+  <div class="facet-value"
+       style="white-space: nowrap;
+              padding: .2em .5em;
+              border-top: solid #eee 1px;
+              position: relative;
+              cursor: pointer;
+              color: #444;
+              background-color: #fff;
+              display: flex;">
+    <span class="facet-value-name"
+          style="white-space: nowrap;
+                 overflow: hidden;
+                 text-overflow: ellipsis;
+                 padding-right: 1em;">
+    </span>
+    <span class="facet-value-doc-count" style="margin-left: auto;"></span>
+  </div>
+</template>
+
+<template id="result">
+  <tr>
+    <td style="display: flex;">
+      <div class="preview-image">
+        <a href="#">
+          <img src="" style="width: 100px; height: auto;">
+        </a>
+      </div>
+      <div class="details">
+        <p class="h4 ml-3">
+          <a href="#">
+          </a>
+        </p>
+        <!-- items get append here -->
+      </div>
+    </td>
+  </tr>
+</template>
+
+<template id="result-details-item">
+  <p class="ml-3 mb-1">
+  </p>
+</template>
+
+<template id="results-pager-list-item">
+    <li style="display: inline;">
+      <button style="border: 1px solid #ced4da;
+                     background-color: transparent;
+                     line-height: 1em;
+                     padding: .4em .6em;">
+      </button>
+    </li>
+</template>
+
+<template id="results-pager-list-item-ellipsis">
+  <li style="display: inline;
+             position: relative;
+             top: .4em;">
+    &#8230;
+  </li>
+</template>
+
+<template id="results-header">
+  <div style="display: flex;">
+    <h4 class="num-hits"
+        style="display: inline;
+               white-space: nowrap;">
+    </h4>
+    <span style="font-size: .8em;
+                 padding-left: 4em;
+                 margin-left: auto;
+                 white-space: nowrap;">
+      <label for="results-per-page">Show</label>
+      <select name="results-per-page"
+              style="background-color: #fff;">
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+    <ol style="display: inline-block;
+               margin-bottom: 0;
+               font-size: .8em;
+               white-space: nowrap">
+    </ol>
+  </div>
+</template>
+
+<template id="results-header-error">
+  <span class="error" style="color: #f00;"></h4>
+</template>
