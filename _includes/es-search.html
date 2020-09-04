@@ -47,9 +47,8 @@
         <table id="results" class="table table-responsive">
           <thead>
             <tr>
-              <td style="border-top: none; display: flex;">
-                <h4 class="num-hits" style="display: inline;"></h4>
-                <div class="search-pager" style="display: inline-block; margin-left: auto;"></div>
+              <td style="border-top: none; padding-bottom: 0;">
+                <div class="results-header"></div>
               </td>
             </tr>
           </thead>
@@ -159,20 +158,51 @@
   </p>
 </template>
 
-<template id="search-pager-list-item">
-  <li style="display: inline;"></li>
+<template id="results-pager-list-item">
+    <li style="display: inline;">
+      <button style="border: 1px solid #ced4da;
+                     background-color: #f4f4f4;
+                     line-height: 1em;
+                     padding: .2em .4em;">
+      </button>
+    </li>
 </template>
 
-<template id="search-pager">
-  <div style="display: inline-block; font-size: .8em;">
-    <label for="results-per-page">Show</label>
-    <select name="results-per-page"
-            style="background-color: #fff;">
-      <option value="10">10</option>
-      <option value="25">25</option>
-      <option value="50">50</option>
-      <option value="100">100</option>
-    </select>
-    <ol style="display: inline-block;"></ol>
+<template id="results-pager-list-item-ellipsis">
+  <li style="display: inline;
+             position: relative;
+             top: .2em;">
+    &#8230;
+  </li>
+</template>
+
+<template id="results-header">
+  <div style="display: flex;">
+    <h4 class="num-hits"
+        style="display: inline;
+               white-space: nowrap;">
+    </h4>
+    <span style="font-size: .8em;
+                 padding-left: 4em;
+                 margin-left: auto;
+                 white-space: nowrap;">
+      <label for="results-per-page">Show</label>
+      <select name="results-per-page"
+              style="background-color: #fff;">
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+    <ol style="display: inline-block;
+               margin-bottom: 0;
+               font-size: .8em;
+               white-space: nowrap">
+    </ol>
   </div>
+</template>
+
+<template id="results-header-error">
+  <span class="error" style="color: #f00;"></h4>
 </template>

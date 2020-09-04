@@ -34,6 +34,9 @@
  // "show more".
  const MAX_NUM_FACET_VALUES = 25
 
+ // Define the default search results page size.
+ const DEFAULT_NUM_RESULTS = 10
+
  // Define a flag that indicates whether this is the multi-search page,
  // as opposed to the collection-specific page.
  const IS_MULTI_SEARCH = "{{ page.layout }}" === "multi-collection-search"
@@ -64,6 +67,20 @@
 
 
  function generateSearchQuery (searchParams) {
+   // Extract any start and size paging params from searchParams.
+   let startParam = 0
+   if (searchParams.has("start")) {
+     startParam = parseInt(searchParams.get("start"))
+     searchParams.delete("start")
+   }
+
+   let sizeParam = DEFAULT_NUM_RESULTS
+   if (searchParams.has("size")) {
+     sizeParam = parseInt(searchParams.get("size"))
+     searchParams.delete("size")
+   }
+
+
    // Init the query context to a match_all.
    let queryContext = { match_all: {} }
 
@@ -114,6 +131,8 @@
    }
 
    let query = {
+     from: startParam,
+     size: sizeParam,
      query: {}
    }
 
@@ -151,7 +170,13 @@
      "collectionUrl",
    ].concat(ALL_FIELD_NAMES)
 
-   return [ indices, query ]
+   // Define an object to represent the paging state.
+   const paging = {
+     start: startParam,
+     size: sizeParam,
+   }
+
+   return [ indices, paging, query ]
  }
 
 
@@ -204,7 +229,7 @@
  async function executeSearch (searchParams) {
    /* Execute a search and all-indices count for the given URL search params.
     */
-   const [ searchIndices, searchQuery ] = generateSearchQuery(searchParams)
+   const [ searchIndices, paging, searchQuery ] = generateSearchQuery(searchParams)
    const allIndices = Array.from(indicesDirectoryIndexTitleMap.keys())
 
    // Create a count query that counts hits across all indices and returns
@@ -240,7 +265,7 @@
    }
    searchResponse.aggregations.collection = collectionAgg
 
-   return searchResponse
+   return [ paging, searchResponse ]
  }
 
 
@@ -267,6 +292,12 @@
    return el
  }
 
+ function updateUrlSearchParams(searchParams) {
+   const url = new URL(location.href)
+   url.search = searchParams
+   history.pushState(null, document.title, url)
+ }
+
 
  //////////////////////////////////////////////////////////////////////////////
  // Facet Rendering
@@ -285,10 +316,10 @@
    params.delete(paramKey)
    paramVals.forEach(v => params.append(paramKey, v))
 
-   const url = new URL(location.href)
-   url.search = params
-   history.pushState(null, document.title, url)
+   // Delete any start param.
+   params.delete("start")
 
+   updateUrlSearchParams(params)
    search(getSearchParams())
  }
 
@@ -436,11 +467,10 @@
    // the new search.
    const params = new URLSearchParams(location.search)
    FACETED_FIELD_NAMES.forEach(fieldName => params.delete(`${fieldName}[]`))
-   // Delete collection[] too if present.
+   // Delete collection[] and start if present.
    params.delete("collection[]")
-   const url = new URL(location.href)
-   url.search = params
-   history.pushState(null, document.title, url)
+   params.delete("start")
+   updateUrlSearchParams(params)
    search(getSearchParams())
  }
 
@@ -496,17 +526,117 @@
  }
 
 
- function SearchPagerElement (numHits, start, size) {
-   const el = clone(document.getElementById("search-pager"))
+ function ResultsHeaderElement (numHits, paging) {
+   // Calculate the start/end indexes of the current results page.
+   const startIdx = paging.start + 1
+   const endIdx = startIdx + Math.min(numHits - startIdx, paging.size - 1)
 
-   const listItemTemplate = document.getElementById("search-pager-list-item")
-   const listEl = el.querySelector('ol')
-
-   for (const itemHTML of [ "&laquo;", "&raquo;" ]) {
-     const itemEl = clone(listItemTemplate)
-     itemEl.innerHTML = itemHTML
-     listEl.appendChild(itemEl)
+   // Display an error message if the start value is invalid.
+   if (endIdx < startIdx) {
+     const el = clone(document.getElementById("results-header-error"))
+     el.textContent = (
+       `Query "start" value (${paging.start}) exceeds the number of total ` +
+       `results (${numHits})`
+     )
+     return el
    }
+
+   const el = clone(document.getElementById("results-header"))
+
+   // Display the document index range.
+   el.querySelector(".num-hits").textContent =
+     `Showing ${startIdx} - ${endIdx} of ${numHits}`
+
+   // Set the size selector value.
+   const sizeEl = el.querySelector('select')
+   // If the query specifies a non-standard size, add it as an option.
+   if (sizeEl.querySelector(`option[value="${paging.size}"]`) === null) {
+     sizeEl.appendChild(
+       createElement(
+         `<option value="${paging.size}">${paging.size}</option>`
+       )
+     )
+   }
+   // Set the value.
+   sizeEl.value = paging.size
+
+   // Add the paging links.
+   const listEl = el.querySelector('ol')
+   const pagerListItemTemplate = document.getElementById("results-pager-list-item")
+
+   // Add pagination button click handler.
+   listEl.addEventListener("click", e => {
+     const el = e.target
+     if (el.tagName !== "BUTTON") {
+       return
+     }
+     params = new URLSearchParams(location.search)
+     params.set("start", paging.start + parseInt(el.dataset.startDelta))
+     updateUrlSearchParams(params)
+     search(getSearchParams())
+   })
+
+   function PagingLink (html, startDelta, disabled=false) {
+     const itemEl = clone(pagerListItemTemplate)
+     const buttonEl = itemEl.querySelector("button")
+     buttonEl.innerHTML = html
+     buttonEl.dataset.startDelta = startDelta
+     buttonEl.disabled = disabled
+     return itemEl
+   }
+
+   const currentPageNum = Math.floor(startIdx / paging.size) + 1
+   const maxPageNum = Math.floor(numHits / paging.size) + 1
+
+   // Add the previous page button.
+   listEl.appendChild(
+     PagingLink("&laquo;&nbsp;prev", -paging.size, currentPageNum === 1)
+   )
+
+   // Define the max number of page number button to display on each side
+   // of the current page.
+   const MAX_NUM_REACHABLE_PAGES = 2
+
+   const ellipsisItemEl = clone(document.getElementById(
+     "results-pager-list-item-ellipsis"
+   ))
+
+   // Maybe add a first page button.
+   if (currentPageNum > MAX_NUM_REACHABLE_PAGES + 1) {
+     listEl.appendChild(
+       PagingLink("1", -paging.start)
+     )
+     listEl.appendChild(ellipsisItemEl)
+   }
+
+   // Add the adjacent page buttons.
+   let pageNumDelta = -MAX_NUM_REACHABLE_PAGES
+   while (pageNumDelta <= MAX_NUM_REACHABLE_PAGES) {
+     const pageNum = currentPageNum + pageNumDelta
+     if (pageNum > 0 && pageNum <= maxPageNum) {
+       listEl.appendChild(
+         PagingLink(
+           `${pageNum}`,
+           paging.size * pageNum - endIdx,
+           pageNum === currentPageNum
+         )
+       )
+     }
+     pageNumDelta += 1
+   }
+
+   // Maybe add a last page button.
+   if (maxPageNum - currentPageNum > MAX_NUM_REACHABLE_PAGES + 1) {
+     listEl.appendChild(ellipsisItemEl)
+     listEl.appendChild(
+       PagingLink(`${maxPageNum}`, numHits - (numHits % paging.size) - startIdx)
+     )
+   }
+
+   // Add the next page button.
+   listEl.appendChild(
+     PagingLink("next&nbsp;&raquo;", paging.size, currentPageNum === maxPageNum)
+   )
 
    return el
  }
@@ -516,7 +646,7 @@
  // Search Result Rendering
  //////////////////////////////////////////////////////////////////////////////
 
- function renderResults (response) {
+ function renderResults (response, paging) {
    // Get the results table and remove any existing children.
    const resultsTableEl = document.getElementById("results")
    const resultsTableBodyEl = resultsTableEl.querySelector("tbody")
@@ -526,16 +656,14 @@
      return
    }
 
-   // Show the number of hits.
+   // Add the results header element.
+   const resultsHeaderEl = document.querySelector(".results-header")
+   removeChildren(resultsHeaderEl)
    const numHits = response.hits.total.value
-   resultsTableEl.querySelector(".num-hits").textContent =
-     `${numHits} Result${numHits > 1 ? "s" : ""} found`
-
-   // Add the search pager element.
-   const searchPagerEl = document.querySelector(".search-pager")
-   removeChildren(searchPagerEl)
    if (numHits > 0) {
-     searchPagerEl.appendChild(SearchPagerElement(numHits, null, null))
+     resultsHeaderEl.appendChild(
+       ResultsHeaderElement(numHits, paging)
+     )
    }
 
    // Add each result to the results table.
@@ -585,11 +713,11 @@
 
  /* search function */
  async function search (searchParams) {
-   const response = await executeSearch(searchParams)
+   const [ paging, response ] = await executeSearch(searchParams)
 
    // Call renderResults() before we check for a numm response in order to
    // empty the results table in the event of an error.
-   renderResults(response)
+   renderResults(response, paging)
 
    if (response === null) {
      document.querySelector("#search-error").innerText =
@@ -672,14 +800,9 @@
    const urlSearchParams = new URLSearchParams(url.search)
    urlSearchParams.set("q", q)
    urlSearchParams.set("fields", fields.join(","))
-   url.search = urlSearchParams
-   history.pushState(null, document.title, url)
 
-   // Update the search params and do the search.
-   const params = getSearchParams()
-   params.set("q", q)
-   params.set("fields", fields)
-   search(params)
+   updateUrlSearchParams(urlSearchParams)
+   search(getSearchParams())
 
    hideAdvancedSearchOptions()
  }
