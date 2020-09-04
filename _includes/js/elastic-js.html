@@ -559,6 +559,13 @@
    }
    // Set the value.
    sizeEl.value = paging.size
+   // Add a size element change handler.
+   sizeEl.addEventListener("change", e => {
+     params = new URLSearchParams(location.search)
+     params.set("size", sizeEl.value)
+     updateUrlSearchParams(params)
+     search(getSearchParams())
+   })
 
    // Add the paging links.
    const listEl = el.querySelector('ol')
@@ -597,37 +604,53 @@
    // of the current page.
    const MAX_NUM_REACHABLE_PAGES = 2
 
-   const ellipsisItemEl = clone(document.getElementById(
-     "results-pager-list-item-ellipsis"
-   ))
+   // Determine whether we're going to show the first and last page buttons.
+   const showFirstPageButton = currentPageNum > MAX_NUM_REACHABLE_PAGES + 1
+   const showLastPageButton = (
+     maxPageNum - currentPageNum > MAX_NUM_REACHABLE_PAGES
+   )
+
+   const ellipsisItemElTemplate =
+     document.getElementById("results-pager-list-item-ellipsis")
 
    // Maybe add a first page button.
-   if (currentPageNum > MAX_NUM_REACHABLE_PAGES + 1) {
+   if (showFirstPageButton) {
      listEl.appendChild(
        PagingLink("1", -paging.start)
      )
-     listEl.appendChild(ellipsisItemEl)
+     listEl.appendChild(clone(ellipsisItemElTemplate))
    }
 
    // Add the adjacent page buttons.
    let pageNumDelta = -MAX_NUM_REACHABLE_PAGES
    while (pageNumDelta <= MAX_NUM_REACHABLE_PAGES) {
      const pageNum = currentPageNum + pageNumDelta
-     if (pageNum > 0 && pageNum <= maxPageNum) {
-       listEl.appendChild(
-         PagingLink(
-           `${pageNum}`,
-           paging.size * pageNum - endIdx,
-           pageNum === currentPageNum
-         )
+     if (
+       pageNum > 0
+       && (pageNum !== 1 || !showFirstPageButton)
+       && (pageNum !== maxPageNum || !showLastPageButton)
+       && pageNum <= maxPageNum
+     ) {
+       const isCurrentPage = pageNum === currentPageNum
+       const pagingLinkEl = PagingLink(
+         `${pageNum}`,
+         paging.size * pageNum - endIdx,
+         isCurrentPage
        )
+       // Set the style of the active page.
+       if (isCurrentPage) {
+         const buttonEl = pagingLinkEl.querySelector("button")
+         buttonEl.style.backgroundColor = "#444"
+         buttonEl.style.color = "#fff"
+       }
+       listEl.appendChild(pagingLinkEl)
      }
      pageNumDelta += 1
    }
 
    // Maybe add a last page button.
-   if (maxPageNum - currentPageNum > MAX_NUM_REACHABLE_PAGES + 1) {
-     listEl.appendChild(ellipsisItemEl)
+   if (showLastPageButton) {
+     listEl.appendChild(clone(ellipsisItemElTemplate))
      listEl.appendChild(
        PagingLink(`${maxPageNum}`, numHits - (numHits % paging.size) - startIdx)
      )
