@@ -96,6 +96,8 @@ The scripts expect this to be executable via the command `pdftotext`.
 
 **Windows**  users will need to extract the files from the downloaded .zip folder and then move the extracted directory to their program files folder. 
 
+**Mac** users can use Homebrew and type `brew install xpdf` into the command line. 
+
 Here's an example of installation under Ubuntu:
 ```
 curl https://xpdfreader-dl.s3.amazonaws.com/xpdf-tools-linux-4.02.tar.gz -O
