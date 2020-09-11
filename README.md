@@ -257,10 +257,21 @@ rake extract_pdf_text
 #### 5.2 Generate the Search Index Data File
 Use the `generate_es_bulk_data` rake task to generate a file, using the collection metadata and extracted PDF text, that can be used to populate the Elasticsearch index.
 
-Usage:
+Local development usage:
 ```
 rake generate_es_bulk_data
 ```
+
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+```
+rake generate_es_bulk_data[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+```
+rake generate_es_bulk_data[admin]
+```
+
 
 #### 5.3 Generate the Search Index Settings File
 Use the `generate_es_index_settings` rake task to create an Elasticsearch index settings file from the configuration in `config-search.csv`.
@@ -536,3 +547,115 @@ While there are a number of ways to achieve this (see: [Index Aliases and Zero D
 2. Execute the `generate_es_index_settings` and `create_es_index` rake tasks to create a new index using the updated `config-search.csv` configuration
 
 3. Execute the `load_es_bulk_data` rake task to load the documents into the new index
+
+
+## Cross-Collection Search
+
+Each site includes a search page that allows you to search across multiple collections hosted on the same Elasticsearch instance as the site's collection.
+This search page can be accessed directly via the path `/multi-collection-search/` or from (highlighted in yellow) the site-collection-specific search page:
+
+![Screenshot from 2020-09-11 10-24-57](https://user-images.githubusercontent.com/585182/92937759-bcf8c080-f419-11ea-9ff2-3aa6a3e39d27.png)
+
+### The `directory_` Index
+
+Cross-collection search is made possible by the addition of a special `directory_` index on the Elasticsearch instance that stores information about the available collection indices.
+
+The documents in `directory_` comprise the fields: `index`, `doc_count`, `title`, `description`
+
+Here's an example Elasticsearch query that returns two documents from a `directory_` index:
+
+```
+curl --silent  https://<elasticsearch-host>:9200/directory_/_search?size=2 | jq
+{
+  "took": 0,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 3,
+      "relation": "eq"
+    },
+    "max_score": 1,
+    "hits": [
+      {
+        "_index": "directory_",
+        "_type": "_doc",
+        "_id": "pg1",
+        "_score": 1,
+        "_source": {
+          "index": "pg1",
+          "doc_count": "342",
+          "title": "The University of Idaho Campus Photograph Collection",
+          "description": "The University of Idaho Campus Photograph Collection contains over 3000 historical photographs of the UI Campus from 1889 to the present."
+        }
+      },
+      {
+        "_index": "directory_",
+        "_type": "_doc",
+        "_id": "uiext",
+        "_score": 1,
+        "_source": {
+          "index": "uiext",
+          "doc_count": "253",
+          "title": "Agricultural Experiment & UI Extension Publications",
+          "description": "A collaboration between the Library and University of Idaho Extension, the University of Idaho Extension and Idaho Agricultural Experiment Station Publications collection features over 2000 publications that serve as the primary source for practical, research-based information on Idaho agriculture, forestry, gardening, family and consumer sciences, and other to links."
+        }
+      }
+    ]
+  }
+}
+```
+
+The site-specific search page queries this index to collect information about whether there are additional collections available to search.
+The cross-collection search page queries this index in order to populate its list of available indices to search against.
+
+### Creating the `directory_` Index
+
+Use the [create_es_directory_index](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/master/Rakefile#L876-L907) rake task to create the `directory_` index on your Elasticsearch instance.
+
+Note that the `create_es_directory_index` task operates directly on the Elasticsearch instance and has no dependency on the collection-specific codebase in which you execute it.
+
+Local development usage:
+```
+rake create_es_directory_index
+```
+
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+```
+rake create_es_directory_index[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+```
+rake create_es_directory_index[admin]
+```
+
+### Updating the `directory_` Index
+
+Use the [update_es_directory_index](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/master/Rakefile#L910-L996) rake task to update the `directory_` index to reflect the current state of collection indices on the Elasticsearch instance. You should execute this task each time you add/remove a collection index to/from the ES instance.
+
+The `update_es_directory_index` task works by querying Elasticsearch for a list of all available indices that it uses to update the `directory_` index documents by either generating new documents for unrepresented collection indices, or by removing documents that represent collection indices that no longer exist.
+
+Note that the `update_es_directory_index` task operates directly on the Elasticsearch instance and has no dependency on the collection-specific codebase in which you execute it.
+
+Local development usage:
+```
+rake update_es_directory_index
+```
+
+To target your production Elasticsearch instance, you must specify a user profile name argument:
+```
+rake update_es_directory_index[<profile-name>]
+```
+
+For example, to specify the user profile name "admin":
+```
+rake update_es_directory_index[admin]
+```
+
+
