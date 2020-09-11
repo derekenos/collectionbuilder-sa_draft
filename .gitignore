@@ -13,3 +13,7 @@ Gemfile.lock
 
 # Ignore the collection objects
 objects/
+
+# Ignore credentials directories
+.aws/
+.elasticsearch/
