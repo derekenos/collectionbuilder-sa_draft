@@ -112,6 +112,9 @@ Download the appropriate executable for your operating system here: https://www.
 
 **Windows**  users will need to extract the files from the downloaded .zip folder and then move the extracted directory to their program files folder. 
 
+**Mac** users can use homebrew. Following [these instructions]
+(https://www.elastic.co/guide/en/elasticsearch/reference/current/brew.html) --> Type `brew tap elastic/tap` into your terminal "to tap the Elastic Homebrew repository." Then type `brew install elastic/tap/elasticsearch-full` to install the full version.  
+
 
 Here's an example of installation under Ubuntu:
 ```
@@ -135,6 +138,8 @@ http.cors.allow-origin: "*"
 ```
 
 Following the above installation for Ubuntu, `elasticsearch.yml` can be found in the directory `/etc/elasticsearch`
+
+**Mac** users can find `elasticsearch.yml` in the directory `/usr/local/etc/elasticsearch/`
 
 ###### Update `_config.yml`
 Update [\_config.yml](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/non-docker/_config.yml#L17-L21) to reflect your Elasticsearch server configuration. E.g.:
@@ -166,9 +171,6 @@ elasticsearch-host: localhost
 elasticsearch-port: 9200
 elasticsearch-index: moscon_programs_collection
 ```
-
-
-
 
 ## Setting Up Your Local Development Environment
 
