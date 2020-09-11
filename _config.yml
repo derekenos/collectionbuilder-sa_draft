@@ -6,10 +6,10 @@
 url:
 # location on the domain
 # e.g. /digital/hjccc
-baseurl: /demo/moscon
+baseurl:
 
 # url to objects folder
-digital-objects: /demo/moscon/objects
+digital-objects: objects
 
 # location of code
 source-code: https://github.com/CollectionBuilder
@@ -18,7 +18,7 @@ source-code: https://github.com/CollectionBuilder
 elasticsearch-protocol: http
 elasticsearch-host: 0.0.0.0
 elasticsearch-port: 9200
-elasticsearch-index: moscon_programs_collection
+elasticsearch-index: moscon
 elasticsearch-directory-index: directory_
 
 # Site settings
