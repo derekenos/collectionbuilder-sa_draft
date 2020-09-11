@@ -142,7 +142,7 @@ Following the above installation for Ubuntu, `elasticsearch.yml` can be found in
 **Mac** users can find `elasticsearch.yml` in the directory `/usr/local/etc/elasticsearch/`
 
 ###### Update `_config.yml`
-Update [\_config.yml](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/non-docker/_config.yml#L17-L21) to reflect your Elasticsearch server configuration. E.g.:
+Update [\_config.yml](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/master/_config.yml#L17-L21) to reflect your Elasticsearch server configuration. E.g.:
 ```
 elasticsearch-protocol: http
 elasticsearch-host: 0.0.0.0
