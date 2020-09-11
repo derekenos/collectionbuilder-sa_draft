@@ -9,7 +9,7 @@ url:
 baseurl:
 
 # url to objects folder
-digital-objects: objects
+digital-objects: objects/moscon
 
 # location of code
 source-code: https://github.com/CollectionBuilder
