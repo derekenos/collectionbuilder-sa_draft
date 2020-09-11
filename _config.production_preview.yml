@@ -3,7 +3,7 @@
 url: http://0.0.0.0:4000
 
 # url to production objects store
-digital-objects: https://collectionbuilder.sfo2.cdn.digitaloceanspaces.com/moscon
+digital-objects: https://collectionbuilder.sfo2.cdn.digitaloceanspaces.com/barstock
 
 # Elasticsearch cluster host
 elasticsearch-protocol: https
