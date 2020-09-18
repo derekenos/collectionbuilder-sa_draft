@@ -45,6 +45,15 @@ $ES_DIRECTORY_INDEX_SETTINGS = {
   }
 }
 
+# Define an Elasticsearch snapshot name template that will automatically include the current date and time.
+# See: https://www.elastic.co/guide/en/elasticsearch/reference/current/date-math-index-names.html#date-math-index-names
+$ES_MANUAL_SNAPSHOT_NAME_TEMPLATE = CGI.escape "<snapshot-{now/d{yyyyMMdd-HHmm}}>"
+$ES_SCHEDULED_SNAPSHOT_NAME_TEMPLATE = "<scheduled-snapshot-{now/d{yyyyMMdd-HHmm}}>"
+
+$ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME = 'default'
+$ES_DEFAULT_SNAPSHOT_POLICY_NAME = 'default'
+
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -1026,7 +1035,7 @@ task :create_es_snapshot_s3_repository,
   assert_required_args(args, [:bucket])
   args.with_defaults(
     :base_path => '_elasticsearch_snapshots',
-    :repository_name => 'default',
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
   )
 
   config = $get_config_for_es_user.call args.es_user
@@ -1052,7 +1061,7 @@ end
 
 
 ###############################################################################
-# create_es_snapshot_s3_repository
+# delete_es_snapshot_repository
 ###############################################################################
 
 desc "Delete an Elasticsearch snapshot repository"
@@ -1075,7 +1084,7 @@ task :delete_es_snapshot_repository, [:es_user, :repository_name] do |t, args|
   else
     data = JSON.load(res.body)
     if data['error']['type'] == 'repository_missing_exception'
-      puts "No Elasticsearch snapshot repository exists for name: \"#{repository_name}\""
+      puts "No Elasticsearch snapshot repository found for name: \"#{repository_name}\""
     else
       raise res.body
     end
@@ -1112,23 +1121,18 @@ end
 desc "Create a new Elasticsearch snapshot"
 task :create_es_snapshot, [:es_user, :repository_name, :wait] do |t, args|
   args.with_defaults(
-    :repository_name => 'default',
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
     :wait => 'true'
   )
   wait = args.wait == 'true'
 
   config = $get_config_for_es_user.call args.es_user
 
-  # Define a snapshot name template that will automatically include the
-  # current date and time.
-  # See: https://www.elastic.co/guide/en/elasticsearch/reference/current/date-math-index-names.html#date-math-index-names
-  SNAPSHOT_NAME_TEMPLATE = CGI.escape "<snapshot-{now/d{yyyyMMdd-kkmm}}>"
-
   res = make_es_request(
      config=config,
      user=args.es_user,
      method=:PUT,
-     path="/_snapshot/#{args.repository_name}/#{SNAPSHOT_NAME_TEMPLATE}",
+     path="/_snapshot/#{args.repository_name}/#{$ES_MANUAL_SNAPSHOT_NAME_TEMPLATE}",
      body=JSON.dump({ :wait => wait }),
      content_type='application/json'
   )
@@ -1147,7 +1151,7 @@ end
 desc "List available Elasticsearch snapshots"
 task :list_es_snapshots, [:es_user, :repository_name] do |t, args|
   args.with_defaults(
-    :repository_name => 'default',
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
   )
 
   config = $get_config_for_es_user.call args.es_user
@@ -1175,7 +1179,7 @@ desc "Restore an Elasticsearch snapshot"
 task :restore_es_snapshot, [:es_user, :snapshot_name, :wait, :repository_name] do |t, args|
   assert_required_args(args, [ :snapshot_name ])
   args.with_defaults(
-    :repository_name => 'default',
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
     :wait => 'true'
   )
   wait = args.wait == 'true'
@@ -1198,6 +1202,111 @@ task :restore_es_snapshot, [:es_user, :snapshot_name, :wait, :repository_name] d
   else
     # Pretty-print the JSON response.
     puts JSON.pretty_generate(JSON.load(res.body))
+  end
+end
+
+
+###############################################################################
+# create_es_snapshot_policy
+###############################################################################
+
+desc "Create a policy to enable automatic Elasticsearch snapshots"
+task :create_es_snapshot_policy, [:es_user, :policy_name, :repository_name, :schedule] do |t, args|
+  # https://www.elastic.co/guide/en/elasticsearch/reference/current/cron-expressions.html
+  CRON_DAILY_AT_MIDNIGHT = '0 0 0 * * ?'
+
+  args.with_defaults(
+    :policy_name => $ES_DEFAULT_SNAPSHOT_POLICY_NAME,
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+    :schedule => CRON_DAILY_AT_MIDNIGHT
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:PUT,
+     path="/_slm/policy/#{args.policy_name}",
+     body=JSON.dump(
+       {:schedule => args.schedule,
+        :name => $ES_SCHEDULED_SNAPSHOT_NAME_TEMPLATE,
+        :repository => args.repository_name,
+        :config => { :indices => [ '*' ] },
+        :rentention => {
+          :expire_after => '30d',
+          :min_count => 5,
+          :max_count => 50
+        }
+       }
+     ),
+     content_type='application/json'
+  )
+
+  if res.code != '200'
+    raise res.body
+  end
+  puts "Elasticsearch snapshot policy (#{args.policy_name}) created"
+end
+
+
+###############################################################################
+# list_es_snapshot_policies
+###############################################################################
+
+desc "List the currently-defined Elasticsearch snapshot policies"
+task :list_es_snapshot_policies, [:es_user, :repository_name] do |t, args|
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path="/_slm/policy"
+  )
+  data = JSON.load res.body
+  if res.code != '200'
+      raise "#{data}"
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# delete_es_snapshot_policy
+###############################################################################
+
+desc "Delete an Elasticsearch snapshot policy"
+task :delete_es_snapshot_policy, [:es_user, :policy_name] do |t, args|
+  args.with_defaults(
+    :policy_name => $ES_DEFAULT_SNAPSHOT_POLICY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  policy_name = args.policy_name
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:DELETE,
+     path="/_slm/policy/#{policy_name}"
+  )
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch snapshot policy: \"#{policy_name}\""
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'resource_not_found_exception'
+      puts "No Elasticsearch snapshot policy found for name: \"#{policy_name}\""
+    else
+      raise res.body
+    end
   end
 end
 
