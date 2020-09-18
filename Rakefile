@@ -1,4 +1,5 @@
 
+require "cgi"
 require 'csv'
 require 'json'
 require 'yaml'
@@ -52,8 +53,8 @@ $ensure_dir_exists = ->(dir) { if !Dir.exists?(dir) then Dir.mkdir(dir) end }
 
 def assert_env_arg_is_valid env, valid_envs=["DEVELOPMENT", "PRODUCTION_PREVIEW", "PRODUCTION"]
   if !valid_envs.include? env
-    raise "Invalid environment value: \"#{env}\". " +
-          "Please specify one of: #{valid_envs}"
+    puts "Invalid environment value: \"#{env}\". Please specify one of: #{valid_envs}"
+    exit 1
   end
 end
 
@@ -61,7 +62,8 @@ def assert_required_args args, req_args
   # Assert that the task args object includes a non-nil value for each arg in req_args.
   missing_args = req_args.filter { |x| !args.has_key?(x) or args.fetch(x) == nil }
   if missing_args.length > 0
-    raise "The following required task arguments must be specified: #{missing_args}"
+    puts "The following required task arguments must be specified: #{missing_args}"
+    exit 1
   end
 end
 
@@ -757,8 +759,18 @@ def make_es_request config, user, method, path, body=nil, content_type=nil
   end
 
   # Make the request.
-  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
+  begin
+    res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
     http.request(req)
+    end
+  rescue Errno::ECONNREFUSED
+    puts "Elasticsearch not found at: #{host}:#{port}"
+    if user == nil
+      puts 'By default, the Elasticsearch-related rake tasks attempt to operate on the local, ' +
+           'development ES instance. If you want to operate on a production instance, please ' +
+           'specify the <profile-name> rake task argument.'
+    end
+    exit 1
   end
 
   return res
@@ -1010,10 +1022,10 @@ end
 
 desc "Create an Elasticsearch snapshot repository that uses S3-compatible storage"
 task :create_es_snapshot_s3_repository,
-     [:es_user, :endpoint, :bucket, :base_path, :repository_name] do |t, args|
-  assert_required_args(args, [:endpoint, :bucket])
+     [:es_user, :bucket, :base_path, :repository_name] do |t, args|
+  assert_required_args(args, [:bucket])
   args.with_defaults(
-    :base_path => '/_elasticsearch_snapshots',
+    :base_path => '_elasticsearch_snapshots',
     :repository_name => 'default',
   )
 
@@ -1028,14 +1040,45 @@ task :create_es_snapshot_s3_repository,
        :type => 's3',
        :settings => {
          :bucket => args.bucket,
-         :base_path => args._base_path
+         :base_path => args.base_path
        }
                     }),
     content_type='application/json'
   )
-  data = JSON.load res.body
   if res.code != '200'
-      raise "#{data}"
+      raise res.body
+  end
+end
+
+
+###############################################################################
+# create_es_snapshot_s3_repository
+###############################################################################
+
+desc "Delete an Elasticsearch snapshot repository"
+task :delete_es_snapshot_repository, [:es_user, :repository_name] do |t, args|
+  assert_required_args(args, [:repository_name])
+
+  config = $get_config_for_es_user.call args.es_user
+
+  repository_name = args.repository_name
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:DELETE,
+     path="/_snapshot/#{repository_name}"
+  )
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch snapshot repository: \"#{repository_name}\""
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'repository_missing_exception'
+      puts "No Elasticsearch snapshot repository exists for name: \"#{repository_name}\""
+    else
+      raise res.body
+    end
   end
 end
 
@@ -1054,11 +1097,108 @@ task :list_es_snapshot_repositories, [:es_user] do |t, args|
      method=:GET,
      path='/_snapshot',
   )
+  if res.code != '200'
+      raise res.body
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# create_es_snapshot
+###############################################################################
+
+desc "Create a new Elasticsearch snapshot"
+task :create_es_snapshot, [:es_user, :repository_name, :wait] do |t, args|
+  args.with_defaults(
+    :repository_name => 'default',
+    :wait => 'true'
+  )
+  wait = args.wait == 'true'
+
+  config = $get_config_for_es_user.call args.es_user
+
+  # Define a snapshot name template that will automatically include the
+  # current date and time.
+  # See: https://www.elastic.co/guide/en/elasticsearch/reference/current/date-math-index-names.html#date-math-index-names
+  SNAPSHOT_NAME_TEMPLATE = CGI.escape "<snapshot-{now/d{yyyyMMdd-kkmm}}>"
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:PUT,
+     path="/_snapshot/#{args.repository_name}/#{SNAPSHOT_NAME_TEMPLATE}",
+     body=JSON.dump({ :wait => wait }),
+     content_type='application/json'
+  )
+  if res.code != '200'
+      raise res.body
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# list_es_snapshots
+###############################################################################
+
+desc "List available Elasticsearch snapshots"
+task :list_es_snapshots, [:es_user, :repository_name] do |t, args|
+  args.with_defaults(
+    :repository_name => 'default',
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path="/_snapshot/#{args.repository_name}/*"
+  )
   data = JSON.load res.body
   if res.code != '200'
       raise "#{data}"
   end
-  puts data
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# restore_es_snapshot
+###############################################################################
+
+desc "Restore an Elasticsearch snapshot"
+task :restore_es_snapshot, [:es_user, :snapshot_name, :wait, :repository_name] do |t, args|
+  assert_required_args(args, [ :snapshot_name ])
+  args.with_defaults(
+    :repository_name => 'default',
+    :wait => 'true'
+  )
+  wait = args.wait == 'true'
+
+  config = $get_config_for_es_user.call args.es_user
+
+  repository_snapshot_path = "#{args.repository_name}/#{args.snapshot_name}"
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:POST,
+     path="/_snapshot/#{repository_snapshot_path}/_restore" +
+          "?wait_for_completion=#{args.wait}"
+  )
+  if res.code != '200'
+    raise res.body
+  elsif wait
+    puts "Snapshot (#{repository_snapshot_path}) restored"
+  else
+    # Pretty-print the JSON response.
+    puts JSON.pretty_generate(JSON.load(res.body))
+  end
 end
 
 
