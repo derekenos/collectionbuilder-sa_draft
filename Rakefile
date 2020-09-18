@@ -57,6 +57,14 @@ def assert_env_arg_is_valid env, valid_envs=["DEVELOPMENT", "PRODUCTION_PREVIEW"
   end
 end
 
+def assert_required_args args, req_args
+  # Assert that the task args object includes a non-nil value for each arg in req_args.
+  missing_args = req_args.filter { |x| !args.has_key?(x) or args.fetch(x) == nil }
+  if missing_args.length > 0
+    raise "The following required task arguments must be specified: #{missing_args}"
+  end
+end
+
 def prompt_user_for_confirmation message
   response = nil
   while true do
@@ -766,7 +774,7 @@ def get_es_index_metadata config, user, index
   )
   data = JSON.load res.body
   if res.code != '200'
-      raise data
+      raise "#{data}"
   end
   return data[index]['mappings']['_meta']
 end
@@ -993,6 +1001,64 @@ task :update_es_directory_index, [:es_user] do |t, args|
     puts "Added index document (#{index_name}) to the directory"
   end
 
+end
+
+
+###############################################################################
+# create_es_snapshot_s3_repository
+###############################################################################
+
+desc "Create an Elasticsearch snapshot repository that uses S3-compatible storage"
+task :create_es_snapshot_s3_repository,
+     [:es_user, :endpoint, :bucket, :base_path, :repository_name] do |t, args|
+  assert_required_args(args, [:endpoint, :bucket])
+  args.with_defaults(
+    :base_path => '/_elasticsearch_snapshots',
+    :repository_name => 'default',
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:PUT,
+     path="/_snapshot/#{args.repository_name}",
+     body=JSON.dump({
+       :type => 's3',
+       :settings => {
+         :bucket => args.bucket,
+         :base_path => args._base_path
+       }
+                    }),
+    content_type='application/json'
+  )
+  data = JSON.load res.body
+  if res.code != '200'
+      raise "#{data}"
+  end
+end
+
+
+###############################################################################
+# list_es_snapshot_repositories
+###############################################################################
+
+desc "List the existing Elasticsearch snapshot repositories"
+task :list_es_snapshot_repositories, [:es_user] do |t, args|
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path='/_snapshot',
+  )
+  data = JSON.load res.body
+  if res.code != '200'
+      raise "#{data}"
+  end
+  puts data
 end
 
 
