@@ -1207,6 +1207,41 @@ end
 
 
 ###############################################################################
+# delete_es_snapshot
+###############################################################################
+
+desc "Delete an Elasticsearch snapshot"
+task :delete_es_snapshot, [:es_user, :snapshot_name, :repository_name] do |t, args|
+  assert_required_args(args, [:snapshot_name])
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  snapshot_name = args.snapshot_name
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:DELETE,
+     path="/_snapshot/#{args.repository_name}/#{snapshot_name}"
+  )
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch snapshot: \"#{snapshot_name}\""
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'snapshot_missing_exception'
+      puts "No Elasticsearch snapshot found for name: \"#{snapshot_name}\""
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
 # create_es_snapshot_policy
 ###############################################################################
 
