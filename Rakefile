@@ -1286,6 +1286,34 @@ end
 
 
 ###############################################################################
+# execute_es_snapshot_policy
+###############################################################################
+
+desc "Manually execute an existing Elasticsearch snapshot policy"
+task :execute_es_snapshot_policy, [:es_user, :policy_name, :repository_name] do |t, args|
+  args.with_defaults(
+    :policy_name => $ES_DEFAULT_SNAPSHOT_POLICY_NAME,
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:POST,
+     path="/_slm/policy/#{args.policy_name}/_execute"
+  )
+
+  if res.code != '200'
+    raise res.body
+  end
+  puts "Elasticsearch snapshot policy (#{args.policy_name}) was executed.\n" +
+       "Run the list_es_snapshot_policies rake task to check its status."
+end
+
+
+###############################################################################
 # list_es_snapshot_policies
 ###############################################################################
 
