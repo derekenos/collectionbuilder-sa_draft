@@ -469,7 +469,61 @@ This section will describe how to get Elasticsearch up and running on a Digital 
     passwd: password updated successfully
     ```
 
+## Configure Automatic Elasticsearch Backups
 
+Elasticsearch provides a [snapshot feature](https://www.elastic.co/guide/en/elasticsearch/reference/current/snapshot-restore.html) that allows you to save the current state of your indices. These snapshots can then be used to restore an instance to a previous state, or to initialize a new instance.
+
+Though there are several options for where/how to store your snapshots, we'll describe doing so using a Digital Ocean Space.
+
+### Configure Elasticsearch to store snapshots on a Digital Ocean Space
+
+1. Create a Digital Ocean Spaces access key to use for writing the snapshots
+
+    TODO
+
+2. Configure the Elasticsearch [repository-s3](https://www.elastic.co/guide/en/elasticsearch/plugins/current/repository-s3.html) plugin to use Digital Ocean Space endpoint
+
+    TODO
+  
+3. Add the Digital Ocean Space access key to the Elasticsearch keystore
+
+    Set the `access_key`:
+    ```
+    /usr/share/elasticsearch/bin/elasticsearch-keystore add s3.client.default.access_key
+    { enter the access key + hit ENTER}
+    ```
+    
+    Set the `secret_key`:
+    ```
+    /usr/share/elasticsearch/bin/elasticsearch-keystore add s3.client.default.secret_key
+    { enter the secret key + hit ENTER }
+    ```
+    
+    Note that the `"default"` in these key names corresponds to the name of the Elasticsearch snapshot repository that `create_es_snapshot_s3_repository` will create by default. If you plan on specifing a different repository name to `create_es_snapshot_s3_repository`, you must replace the `"default"` in these keystore keys (e.g. `s3.client.default.access_key`) with that same name.
+  
+4. Restart the Elasticsearch instance
+
+    TODO
+    
+5. Create the snapshot repository
+
+    TODO - more details
+    
+    ```
+    rake create_es_snapshot_s3_repository[<profile-name>]
+    ```
+    
+    Note that this operation will attempt to write some test data to the Digital Ocean Space. If the Space is not accessible, this step will fail.
+    
+6. Enable automatic daily snapshots
+
+    TODO - more details
+    
+    ```
+    rake create_es_snapshot_policy[<profile-name>]
+    ```
+       
+    
 ## Creating Your Local Elasticsearch Credentials File<a id="creating-your-local-elasticsearch-credentials-file"></a>
 
 After generating passwords for your built-in Elasticsearch users, the ES-related rake tasks will need access to these usernames / passwords (namely that of the `elastic` user) in order to communicate with the server. This is done by creating a local Elasticsearch credentials file.
