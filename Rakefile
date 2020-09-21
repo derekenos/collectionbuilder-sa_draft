@@ -12,6 +12,10 @@ require 'aws-sdk-s3'
 # Constants
 ###############################################################################
 
+$APPLICATION_JSON = 'application/json'
+
+$S3_URL_REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com(?:\/(?<prefix>.+))?$/
+
 $ES_CREDENTIALS_PATH = File.join [Dir.home, ".elasticsearch", "credentials"]
 $ES_BULK_DATA_FILENAME = 'es_bulk_data.jsonl'
 $ES_INDEX_SETTINGS_FILENAME = 'es_index_settings.json'
@@ -50,6 +54,7 @@ $ES_DIRECTORY_INDEX_SETTINGS = {
 $ES_MANUAL_SNAPSHOT_NAME_TEMPLATE = CGI.escape "<snapshot-{now/d{yyyyMMdd-HHmm}}>"
 $ES_SCHEDULED_SNAPSHOT_NAME_TEMPLATE = "<scheduled-snapshot-{now/d{yyyyMMdd-HHmm}}>"
 
+$ES_DEFAULT_SNAPSHOT_REPOSITORY_BASE_PATH = '_elasticsearch_snapshots'
 $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME = 'default'
 $ES_DEFAULT_SNAPSHOT_POLICY_NAME = 'default'
 
@@ -200,6 +205,25 @@ def elasticsearch_ready config
   else
     res.code == '200'
   end
+end
+
+
+def parse_digitalocean_space_url url
+  # Parse a Digital Ocean Space URL into its constituent S3 components, with the expectation
+  # that it has the format:
+  # <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com[/<prefix>]
+  # where the endpoint will be: <region>.digitaloceanspaces.com
+  match = $S3_URL_REGEX.match url
+  if !match
+    puts "digital-objects URL \"#{url}\" does not match the expected "\
+         "pattern: \"#{$S3_URL_REGEX}\""
+    exit 1
+  end
+  bucket = match[:bucket]
+  region = match[:region]
+  prefix = match[:prefix]
+  endpoint = "https://#{region}.digitaloceanspaces.com"
+  return bucket, region, prefix, endpoint
 end
 
 
@@ -732,7 +756,7 @@ def make_es_request config, user, method, path, body=nil, content_type=nil
   host = config[:elasticsearch_host]
   port = config[:elasticsearch_port]
 
-  initheader = { 'Accept' => 'application/json' }
+  initheader = { 'Accept' => $APPLICATION_JSON }
   if content_type != nil
     initheader['Content-Type'] = content_type
   end
@@ -820,7 +844,7 @@ task :create_es_index, [:es_user] do |t, args|
     method=:PUT,
     path="/#{config[:elasticsearch_index]}",
     body=File.open(File.join([dev_config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read,
-    content_type='application/json'
+    content_type=$APPLICATION_JSON
   )
 
   if res.code == '200'
@@ -920,7 +944,7 @@ task :create_es_directory_index, [:es_user] do |t, args|
     method=:PUT,
     path="/#{config[:elasticsearch_directory_index]}",
     body=JSON.dump($ES_DIRECTORY_INDEX_SETTINGS),
-    content_type='application/json',
+    content_type=$APPLICATION_JSON,
   )
 
   if res.code == '200'
@@ -1013,7 +1037,7 @@ task :update_es_directory_index, [:es_user] do |t, args|
       method=:POST,
       path="/#{directory_index_name}/_doc/#{index_name}",
       body=JSON.dump(document),
-      content_type="application/json"
+      content_type=$APPLICATION_JSON
     )
     data = JSON.load(res.body)
     if res.code != '201'
@@ -1034,7 +1058,7 @@ task :create_es_snapshot_s3_repository,
      [:es_user, :bucket, :base_path, :repository_name] do |t, args|
   assert_required_args(args, [:bucket])
   args.with_defaults(
-    :base_path => '_elasticsearch_snapshots',
+    :base_path => $ES_DEFAULT_SNAPSHOT_REPOSITORY_BASE_PATH,
     :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
   )
 
@@ -1052,11 +1076,12 @@ task :create_es_snapshot_s3_repository,
          :base_path => args.base_path
        }
                     }),
-    content_type='application/json'
+    content_type=$APPLICATION_JSON
   )
   if res.code != '200'
       raise res.body
   end
+  puts "Elasticsearch S3 snapshot repository (#{args.repository_name}) created"
 end
 
 
@@ -1134,7 +1159,7 @@ task :create_es_snapshot, [:es_user, :repository_name, :wait] do |t, args|
      method=:PUT,
      path="/_snapshot/#{args.repository_name}/#{$ES_MANUAL_SNAPSHOT_NAME_TEMPLATE}",
      body=JSON.dump({ :wait => wait }),
-     content_type='application/json'
+     content_type=$APPLICATION_JSON
   )
   if res.code != '200'
       raise res.body
@@ -1275,7 +1300,7 @@ task :create_es_snapshot_policy, [:es_user, :policy_name, :repository_name, :sch
         }
        }
      ),
-     content_type='application/json'
+     content_type=$APPLICATION_JSON
   )
 
   if res.code != '200'
@@ -1309,7 +1334,7 @@ task :execute_es_snapshot_policy, [:es_user, :policy_name, :repository_name] do 
     raise res.body
   end
   puts "Elasticsearch snapshot policy (#{args.policy_name}) was executed.\n" +
-       "Run the list_es_snapshot_policies rake task to check its status."
+       "Run \"rake list_es_snapshot_policies[#{args.es_user}]\" to check its status."
 end
 
 
@@ -1375,6 +1400,42 @@ end
 
 
 ###############################################################################
+# enable_es_daily_snapshots
+###############################################################################
+
+desc "Enable daily Elasticsearch snapshots to be written to the \"#{$ES_DEFAULT_SNAPSHOT_REPOSITORY_BASE_PATH}\" directory of your Digital Ocean Space."
+task :enable_es_daily_snapshots, [:es_user] do |t, args|
+  # Check that the user has already completed the server-side configuration.
+  if !prompt_user_for_confirmation "Did you already run the configure-s3-snapshots script on the Elasticsearch instance?"
+    puts "Please see the README for instructions on how to run the configure-s3-snapshots script."
+    exit 1
+  end
+
+  es_user = args.es_user
+
+  config = $get_config_for_es_user.call es_user
+
+  # Assert that the specified user is associated with a production config.
+  if !config.has_key? :remote_objects_url
+    puts "Please specify a production ES user"
+  end
+
+  # Get the Digital Ocean Space bucket value.
+  bucket = parse_digitalocean_space_url(config[:remote_objects_url])[0]
+
+  # Create the S3 snapshot repository.
+  Rake::Task['create_es_snapshot_s3_repository'].invoke(es_user, bucket)
+
+  # Create the automatic snapshot policy.
+  Rake::Task['create_es_snapshot_policy'].invoke(es_user)
+
+  # Manually execute the policy to test it.
+  puts "Manually executing the snapshot policy to ensure that it works..."
+  Rake::Task['execute_es_snapshot_policy'].invoke(es_user)
+end
+
+
+###############################################################################
 # setup_elasticsearch
 ###############################################################################
 
@@ -1419,23 +1480,9 @@ task :sync_objects, [ :aws_profile ] do |t, args |
   thumb_images_dir = dev_config[:thumb_images_dir]
   small_images_dir = dev_config[:small_images_dir]
 
-  # Get the remove objects URL from the production configuration.
+  # Parse the S3 components from the remove_objects_url.
   s3_url = load_config(:PRODUCTION_PREVIEW)[:remote_objects_url]
-
-  # Derive the S3 endpoint from the URL, with the expectation that it has the
-  # format: <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com[/<prefix>]
-  # where the endpoint will be: <region>.digitaloceanspaces.com
-  REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com(?:\/(?<prefix>.+))?$/
-  match = REGEX.match s3_url
-  if !match
-    puts "digital-objects URL \"#{s3_url}\" does not match the expected "\
-         "pattern: \"#{REGEX}\""
-    next
-  end
-  bucket = match[:bucket]
-  region = match[:region]
-  prefix = match[:prefix]
-  endpoint = "https://#{region}.digitaloceanspaces.com"
+  bucket, region, prefix, endpoint = parse_digitalocean_space_url s3_url
 
   # Create the S3 client.
   credentials = Aws::SharedCredentials.new(profile_name: args.aws_profile)
