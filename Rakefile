@@ -861,6 +861,28 @@ end
 
 
 ###############################################################################
+# list_es_indices
+###############################################################################
+
+desc "Show the available Elasticsearch indices"
+task :list_es_indices, [:es_user] do |t, args|
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path='/_cat/indices'
+  )
+  if res.code != '200'
+      raise res.body
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
 # delete_es_index
 ###############################################################################
 
@@ -1158,7 +1180,11 @@ task :create_es_snapshot, [:es_user, :repository_name, :wait] do |t, args|
      user=args.es_user,
      method=:PUT,
      path="/_snapshot/#{args.repository_name}/#{$ES_MANUAL_SNAPSHOT_NAME_TEMPLATE}",
-     body=JSON.dump({ :wait => wait }),
+     body=JSON.dump(
+       { :indices => [ '*', '-.security*' ],
+         :wait => wait,
+       }
+     ),
      content_type=$APPLICATION_JSON
   )
   if res.code != '200'
@@ -1292,7 +1318,7 @@ task :create_es_snapshot_policy, [:es_user, :policy_name, :repository_name, :sch
        {:schedule => args.schedule,
         :name => $ES_SCHEDULED_SNAPSHOT_NAME_TEMPLATE,
         :repository => args.repository_name,
-        :config => { :indices => [ '*' ] },
+        :config => { :indices => [ '*', '-.security*' ] },
         :rentention => {
           :expire_after => '30d',
           :min_count => 5,
