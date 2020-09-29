@@ -1,4 +1,4 @@
 field,displayName,btn,hidden
 date,Date,
-creator,Creator,
-subject,,true
+meeting_type,Meeting Type
+document_type,Document Type

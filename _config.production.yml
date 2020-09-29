@@ -1,13 +1,13 @@
 
 # site domain
-url: http://collectionbuilder-moscon.s3-website-us-east-1.amazonaws.com
+url: http://opendata-cityofbeacon.s3-website-us-east-1.amazonaws.com
 
 # url to production objects store
-digital-objects: https://collectionbuilder.sfo2.cdn.digitaloceanspaces.com/moscon
+digital-objects: https://datapuddle.nyc3.cdn.digitaloceanspaces.com/cityofbeacon
 
 # Elasticsearch cluster host
 elasticsearch-protocol: https
-elasticsearch-host: cb-elasticsearch.derekenos.com
+elasticsearch-host: opendata-elasticsearch.derekenos.com
 elasticsearch-port: 9200
 
 exclude: [docs/, Rakefile, README.md, LICENSE, objects/]
