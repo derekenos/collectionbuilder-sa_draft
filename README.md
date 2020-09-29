@@ -469,7 +469,78 @@ This section will describe how to get Elasticsearch up and running on a Digital 
     passwd: password updated successfully
     ```
 
+## Configure Automatic Elasticsearch Backups
 
+Elasticsearch provides a [snapshot feature](https://www.elastic.co/guide/en/elasticsearch/reference/current/snapshot-restore.html) that allows you to save the current state of your indices. These snapshots can then be used to restore an instance to a previous state, or to initialize a new instance.
+
+Though there are several options for where/how to store your snapshots, we'll describe doing so using a Digital Ocean Space and the Elasticsearch [repository-s3](https://www.elastic.co/guide/en/elasticsearch/plugins/current/repository-s3.html) plugin. **Note that since we're leveraging the Digital Ocean Spaces S3-compatible API, these same basic steps can be used to alternately configure an AWS S3 bucket for snapshot storage.**
+
+
+### Configure Elasticsearch to store snapshots on a Digital Ocean Space
+
+1. Choose or create a Digital Ocean Space
+
+    The easiest thing is use the same DO Space that you're already using to store your collection objects to also store your Elasticsearch snapshots. In fact, the `enable_es_daily_snapshots` rake task that we detail below assumes this and parses the Space name from the `digital-objects` value of your production config. [By default](https://github.com/CollectionBuilder/collectionbuilder-sa_draft/blob/es-snapshots/Rakefile#L57), the snapshot files will be saved as non-public objects to a `_elasticsearch_snapshots/` subdirectory of the configured Space, which shouldn't interfere with any existing collections.
+
+    If you don't want to use an existing DO Space to store your snapshots, you should create a new one for this purpose.
+   
+2. Create a Digital Ocean Space access key
+
+    Elasticsearch will need to specify credentials when reading and writing snapshot objects on the Digital Ocean Space.
+   
+    You can generate your Digital Ocean access key by going to your DO account page and clicking on:
+    
+    `API -> Spaces access keys -> Generate New Key`
+        
+    A good name for this key is something like: `elasticsearch-snapshot-writer`
+
+3. Configure Elasticsearch to access the Space
+
+    This step needs to be completed on the Elasticsearch server instance itself.
+    
+    1. Open a console window:
+
+        1. In the Digital Ocean UI, navigate to `Droplets -> <the-droplet>`
+        2. Click the `Console []` link on the right side
+        3. At the `elastic login:` prompt, type `ubuntu` and hit `ENTER`
+        4. At the `Password:` prompt, type `password` (or your updated password) and hit `ENTER`
+    
+    2. Run the [configure-s3-snapshots](https://github.com/CollectionBuilder/collectionbuilder-sa_elasticsearch-image/blob/master/files/configure-s3-snapshots) shell script
+    
+        Usage:
+        
+        `sudo ./configure-s3-snapshots`
+        
+        This script will:
+       
+        1. Check whether an S3-compatible endpoint has already been configured
+        2. Install the `repository-s3` plugin if necessary
+        3. Prompt you for your S3-compatible endpoint (see note)
+        4. Prompt you for the DO Space access key
+        5. Prompt you for the DO Space secret key
+    
+        Notes:
+        
+        - This script assumes the default S3 repository name of `"default"`. If you plan on executing the `create_es_snapshot_s3_repository` rake task manually (as opposed to the automated `enable_es_daily_snapshots` that we detail below) and specifing a non-default repository name, you should specify that name as the first argument to `configure-s3-snapshots`, i.e. `sudo ./configure-s3-snapshots <repository-name>`            
+        
+        - You can find your DO Space endpoint value by navigating to `Spaces -> <the-space> -> Settings -> Endpoint` in the Digital Ocean UI. Alternatively, if you know which region your Space is in, the [endpoint value is in the format](https://www.digitalocean.com/docs/spaces/resources/s3-sdk-examples/#configure-a-client): `<REGION>.digitaloceanspaces.com`, e.g. `sfo2.digitaloceanspaces.com`
+      
+4. Configure a snapshot repository and enable daily snapshots
+
+    The `enable_es_daily_snapshots` rake task takes care of creating the Elasticsearch S3 snapshot repository, automated snapshot policy, and tests the snapshot policy to make sure everything's working.
+    
+    Usage:
+    
+    ```
+    rake enable_es_daily_snapshots[<profile-name>]
+    ```
+    
+    Notes:
+    
+    - This task only targets remote production (not local development) Elasticsearch instances, so you must specify an Elasticsearch credentials profile name.
+    - This task assumes that you want to use all of the default snapshot configuration values which includes using the same Digital Ocean Space that you've configured in the `digital-objects` value of your production config to store your snapshot files. If you want to use a different repository name, DO Space, or snapshot schedule other than daily, you'll have to run the `create_es_snapshot_s3_repository`, `create_es_snapshot_policy`, and `execute_es_snapshot_policy` rake tasks manually.
+    
+    
 ## Creating Your Local Elasticsearch Credentials File<a id="creating-your-local-elasticsearch-credentials-file"></a>
 
 After generating passwords for your built-in Elasticsearch users, the ES-related rake tasks will need access to these usernames / passwords (namely that of the `elastic` user) in order to communicate with the server. This is done by creating a local Elasticsearch credentials file.
@@ -657,5 +728,3 @@ For example, to specify the user profile name "admin":
 ```
 rake update_es_directory_index[admin]
 ```
-
-

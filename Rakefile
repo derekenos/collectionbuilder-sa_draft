@@ -1,4 +1,5 @@
 
+require "cgi"
 require 'csv'
 require 'json'
 require 'yaml'
@@ -10,6 +11,10 @@ require 'aws-sdk-s3'
 ###############################################################################
 # Constants
 ###############################################################################
+
+$APPLICATION_JSON = 'application/json'
+
+$S3_URL_REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com(?:\/(?<prefix>.+))?$/
 
 $ES_CREDENTIALS_PATH = File.join [Dir.home, ".elasticsearch", "credentials"]
 $ES_BULK_DATA_FILENAME = 'es_bulk_data.jsonl'
@@ -44,6 +49,16 @@ $ES_DIRECTORY_INDEX_SETTINGS = {
   }
 }
 
+# Define an Elasticsearch snapshot name template that will automatically include the current date and time.
+# See: https://www.elastic.co/guide/en/elasticsearch/reference/current/date-math-index-names.html#date-math-index-names
+$ES_MANUAL_SNAPSHOT_NAME_TEMPLATE = CGI.escape "<snapshot-{now/d{yyyyMMdd-HHmm}}>"
+$ES_SCHEDULED_SNAPSHOT_NAME_TEMPLATE = "<scheduled-snapshot-{now/d{yyyyMMdd-HHmm}}>"
+
+$ES_DEFAULT_SNAPSHOT_REPOSITORY_BASE_PATH = '_elasticsearch_snapshots'
+$ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME = 'default'
+$ES_DEFAULT_SNAPSHOT_POLICY_NAME = 'default'
+
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -52,8 +67,17 @@ $ensure_dir_exists = ->(dir) { if !Dir.exists?(dir) then Dir.mkdir(dir) end }
 
 def assert_env_arg_is_valid env, valid_envs=["DEVELOPMENT", "PRODUCTION_PREVIEW", "PRODUCTION"]
   if !valid_envs.include? env
-    raise "Invalid environment value: \"#{env}\". " +
-          "Please specify one of: #{valid_envs}"
+    puts "Invalid environment value: \"#{env}\". Please specify one of: #{valid_envs}"
+    exit 1
+  end
+end
+
+def assert_required_args args, req_args
+  # Assert that the task args object includes a non-nil value for each arg in req_args.
+  missing_args = req_args.filter { |x| !args.has_key?(x) or args.fetch(x) == nil }
+  if missing_args.length > 0
+    puts "The following required task arguments must be specified: #{missing_args}"
+    exit 1
   end
 end
 
@@ -181,6 +205,25 @@ def elasticsearch_ready config
   else
     res.code == '200'
   end
+end
+
+
+def parse_digitalocean_space_url url
+  # Parse a Digital Ocean Space URL into its constituent S3 components, with the expectation
+  # that it has the format:
+  # <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com[/<prefix>]
+  # where the endpoint will be: <region>.digitaloceanspaces.com
+  match = $S3_URL_REGEX.match url
+  if !match
+    puts "digital-objects URL \"#{url}\" does not match the expected "\
+         "pattern: \"#{$S3_URL_REGEX}\""
+    exit 1
+  end
+  bucket = match[:bucket]
+  region = match[:region]
+  prefix = match[:prefix]
+  endpoint = "https://#{region}.digitaloceanspaces.com"
+  return bucket, region, prefix, endpoint
 end
 
 
@@ -713,7 +756,7 @@ def make_es_request config, user, method, path, body=nil, content_type=nil
   host = config[:elasticsearch_host]
   port = config[:elasticsearch_port]
 
-  initheader = { 'Accept' => 'application/json' }
+  initheader = { 'Accept' => $APPLICATION_JSON }
   if content_type != nil
     initheader['Content-Type'] = content_type
   end
@@ -749,8 +792,18 @@ def make_es_request config, user, method, path, body=nil, content_type=nil
   end
 
   # Make the request.
-  res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
+  begin
+    res = Net::HTTP.start(host, port, :use_ssl => config[:elasticsearch_protocol] == 'https') do |http|
     http.request(req)
+    end
+  rescue Errno::ECONNREFUSED
+    puts "Elasticsearch not found at: #{host}:#{port}"
+    if user == nil
+      puts 'By default, the Elasticsearch-related rake tasks attempt to operate on the local, ' +
+           'development ES instance. If you want to operate on a production instance, please ' +
+           'specify the <profile-name> rake task argument.'
+    end
+    exit 1
   end
 
   return res
@@ -766,7 +819,7 @@ def get_es_index_metadata config, user, index
   )
   data = JSON.load res.body
   if res.code != '200'
-      raise data
+      raise "#{data}"
   end
   return data[index]['mappings']['_meta']
 end
@@ -791,7 +844,7 @@ task :create_es_index, [:es_user] do |t, args|
     method=:PUT,
     path="/#{config[:elasticsearch_index]}",
     body=File.open(File.join([dev_config[:elasticsearch_dir], $ES_INDEX_SETTINGS_FILENAME]), 'rb').read,
-    content_type='application/json'
+    content_type=$APPLICATION_JSON
   )
 
   if res.code == '200'
@@ -804,6 +857,28 @@ task :create_es_index, [:es_user] do |t, args|
       raise res.body
     end
   end
+end
+
+
+###############################################################################
+# list_es_indices
+###############################################################################
+
+desc "Show the available Elasticsearch indices"
+task :list_es_indices, [:es_user] do |t, args|
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path='/_cat/indices'
+  )
+  if res.code != '200'
+      raise res.body
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
 end
 
 
@@ -891,7 +966,7 @@ task :create_es_directory_index, [:es_user] do |t, args|
     method=:PUT,
     path="/#{config[:elasticsearch_directory_index]}",
     body=JSON.dump($ES_DIRECTORY_INDEX_SETTINGS),
-    content_type='application/json',
+    content_type=$APPLICATION_JSON,
   )
 
   if res.code == '200'
@@ -984,7 +1059,7 @@ task :update_es_directory_index, [:es_user] do |t, args|
       method=:POST,
       path="/#{directory_index_name}/_doc/#{index_name}",
       body=JSON.dump(document),
-      content_type="application/json"
+      content_type=$APPLICATION_JSON
     )
     data = JSON.load(res.body)
     if res.code != '201'
@@ -993,6 +1068,396 @@ task :update_es_directory_index, [:es_user] do |t, args|
     puts "Added index document (#{index_name}) to the directory"
   end
 
+end
+
+
+###############################################################################
+# create_es_snapshot_s3_repository
+###############################################################################
+
+desc "Create an Elasticsearch snapshot repository that uses S3-compatible storage"
+task :create_es_snapshot_s3_repository,
+     [:es_user, :bucket, :base_path, :repository_name] do |t, args|
+  assert_required_args(args, [:bucket])
+  args.with_defaults(
+    :base_path => $ES_DEFAULT_SNAPSHOT_REPOSITORY_BASE_PATH,
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:PUT,
+     path="/_snapshot/#{args.repository_name}",
+     body=JSON.dump({
+       :type => 's3',
+       :settings => {
+         :bucket => args.bucket,
+         :base_path => args.base_path
+       }
+                    }),
+    content_type=$APPLICATION_JSON
+  )
+  if res.code != '200'
+      raise res.body
+  end
+  puts "Elasticsearch S3 snapshot repository (#{args.repository_name}) created"
+end
+
+
+###############################################################################
+# delete_es_snapshot_repository
+###############################################################################
+
+desc "Delete an Elasticsearch snapshot repository"
+task :delete_es_snapshot_repository, [:es_user, :repository_name] do |t, args|
+  assert_required_args(args, [:repository_name])
+
+  config = $get_config_for_es_user.call args.es_user
+
+  repository_name = args.repository_name
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:DELETE,
+     path="/_snapshot/#{repository_name}"
+  )
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch snapshot repository: \"#{repository_name}\""
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'repository_missing_exception'
+      puts "No Elasticsearch snapshot repository found for name: \"#{repository_name}\""
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
+# list_es_snapshot_repositories
+###############################################################################
+
+desc "List the existing Elasticsearch snapshot repositories"
+task :list_es_snapshot_repositories, [:es_user] do |t, args|
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path='/_snapshot',
+  )
+  if res.code != '200'
+      raise res.body
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# create_es_snapshot
+###############################################################################
+
+desc "Create a new Elasticsearch snapshot"
+task :create_es_snapshot, [:es_user, :repository_name, :wait] do |t, args|
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+    :wait => 'true'
+  )
+  wait = args.wait == 'true'
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:PUT,
+     path="/_snapshot/#{args.repository_name}/#{$ES_MANUAL_SNAPSHOT_NAME_TEMPLATE}",
+     body=JSON.dump(
+       { :indices => [ '*', '-.security*' ],
+         :wait => wait,
+       }
+     ),
+     content_type=$APPLICATION_JSON
+  )
+  if res.code != '200'
+      raise res.body
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# list_es_snapshots
+###############################################################################
+
+desc "List available Elasticsearch snapshots"
+task :list_es_snapshots, [:es_user, :repository_name] do |t, args|
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path="/_snapshot/#{args.repository_name}/*"
+  )
+  data = JSON.load res.body
+  if res.code != '200'
+      raise "#{data}"
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# restore_es_snapshot
+###############################################################################
+
+desc "Restore an Elasticsearch snapshot"
+task :restore_es_snapshot, [:es_user, :snapshot_name, :wait, :repository_name] do |t, args|
+  assert_required_args(args, [ :snapshot_name ])
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+    :wait => 'true'
+  )
+  wait = args.wait == 'true'
+
+  config = $get_config_for_es_user.call args.es_user
+
+  repository_snapshot_path = "#{args.repository_name}/#{args.snapshot_name}"
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:POST,
+     path="/_snapshot/#{repository_snapshot_path}/_restore" +
+          "?wait_for_completion=#{args.wait}"
+  )
+  if res.code != '200'
+    raise res.body
+  elsif wait
+    puts "Snapshot (#{repository_snapshot_path}) restored"
+  else
+    # Pretty-print the JSON response.
+    puts JSON.pretty_generate(JSON.load(res.body))
+  end
+end
+
+
+###############################################################################
+# delete_es_snapshot
+###############################################################################
+
+desc "Delete an Elasticsearch snapshot"
+task :delete_es_snapshot, [:es_user, :snapshot_name, :repository_name] do |t, args|
+  assert_required_args(args, [:snapshot_name])
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  snapshot_name = args.snapshot_name
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:DELETE,
+     path="/_snapshot/#{args.repository_name}/#{snapshot_name}"
+  )
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch snapshot: \"#{snapshot_name}\""
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'snapshot_missing_exception'
+      puts "No Elasticsearch snapshot found for name: \"#{snapshot_name}\""
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
+# create_es_snapshot_policy
+###############################################################################
+
+desc "Create a policy to enable automatic Elasticsearch snapshots"
+task :create_es_snapshot_policy, [:es_user, :policy_name, :repository_name, :schedule] do |t, args|
+  # https://www.elastic.co/guide/en/elasticsearch/reference/current/cron-expressions.html
+  CRON_DAILY_AT_MIDNIGHT = '0 0 0 * * ?'
+
+  args.with_defaults(
+    :policy_name => $ES_DEFAULT_SNAPSHOT_POLICY_NAME,
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+    :schedule => CRON_DAILY_AT_MIDNIGHT
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:PUT,
+     path="/_slm/policy/#{args.policy_name}",
+     body=JSON.dump(
+       {:schedule => args.schedule,
+        :name => $ES_SCHEDULED_SNAPSHOT_NAME_TEMPLATE,
+        :repository => args.repository_name,
+        :config => { :indices => [ '*', '-.security*' ] },
+        :rentention => {
+          :expire_after => '30d',
+          :min_count => 5,
+          :max_count => 50
+        }
+       }
+     ),
+     content_type=$APPLICATION_JSON
+  )
+
+  if res.code != '200'
+    raise res.body
+  end
+  puts "Elasticsearch snapshot policy (#{args.policy_name}) created"
+end
+
+
+###############################################################################
+# execute_es_snapshot_policy
+###############################################################################
+
+desc "Manually execute an existing Elasticsearch snapshot policy"
+task :execute_es_snapshot_policy, [:es_user, :policy_name, :repository_name] do |t, args|
+  args.with_defaults(
+    :policy_name => $ES_DEFAULT_SNAPSHOT_POLICY_NAME,
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:POST,
+     path="/_slm/policy/#{args.policy_name}/_execute"
+  )
+
+  if res.code != '200'
+    raise res.body
+  end
+  puts "Elasticsearch snapshot policy (#{args.policy_name}) was executed.\n" +
+       "Run \"rake list_es_snapshot_policies[#{args.es_user}]\" to check its status."
+end
+
+
+###############################################################################
+# list_es_snapshot_policies
+###############################################################################
+
+desc "List the currently-defined Elasticsearch snapshot policies"
+task :list_es_snapshot_policies, [:es_user, :repository_name] do |t, args|
+  args.with_defaults(
+    :repository_name => $ES_DEFAULT_SNAPSHOT_REPOSITORY_NAME
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:GET,
+     path="/_slm/policy"
+  )
+  data = JSON.load res.body
+  if res.code != '200'
+      raise "#{data}"
+  end
+  # Pretty-print the JSON response.
+  puts JSON.pretty_generate(JSON.load(res.body))
+end
+
+
+###############################################################################
+# delete_es_snapshot_policy
+###############################################################################
+
+desc "Delete an Elasticsearch snapshot policy"
+task :delete_es_snapshot_policy, [:es_user, :policy_name] do |t, args|
+  args.with_defaults(
+    :policy_name => $ES_DEFAULT_SNAPSHOT_POLICY_NAME,
+  )
+
+  config = $get_config_for_es_user.call args.es_user
+
+  policy_name = args.policy_name
+
+  res = make_es_request(
+     config=config,
+     user=args.es_user,
+     method=:DELETE,
+     path="/_slm/policy/#{policy_name}"
+  )
+
+  if res.code == '200'
+    puts "Deleted Elasticsearch snapshot policy: \"#{policy_name}\""
+  else
+    data = JSON.load(res.body)
+    if data['error']['type'] == 'resource_not_found_exception'
+      puts "No Elasticsearch snapshot policy found for name: \"#{policy_name}\""
+    else
+      raise res.body
+    end
+  end
+end
+
+
+###############################################################################
+# enable_es_daily_snapshots
+###############################################################################
+
+desc "Enable daily Elasticsearch snapshots to be written to the \"#{$ES_DEFAULT_SNAPSHOT_REPOSITORY_BASE_PATH}\" directory of your Digital Ocean Space."
+task :enable_es_daily_snapshots, [:es_user] do |t, args|
+  # Check that the user has already completed the server-side configuration.
+  if !prompt_user_for_confirmation "Did you already run the configure-s3-snapshots script on the Elasticsearch instance?"
+    puts "Please see the README for instructions on how to run the configure-s3-snapshots script."
+    exit 1
+  end
+
+  es_user = args.es_user
+
+  config = $get_config_for_es_user.call es_user
+
+  # Assert that the specified user is associated with a production config.
+  if !config.has_key? :remote_objects_url
+    puts "Please specify a production ES user"
+  end
+
+  # Get the Digital Ocean Space bucket value.
+  bucket = parse_digitalocean_space_url(config[:remote_objects_url])[0]
+
+  # Create the S3 snapshot repository.
+  Rake::Task['create_es_snapshot_s3_repository'].invoke(es_user, bucket)
+
+  # Create the automatic snapshot policy.
+  Rake::Task['create_es_snapshot_policy'].invoke(es_user)
+
+  # Manually execute the policy to test it.
+  puts "Manually executing the snapshot policy to ensure that it works..."
+  Rake::Task['execute_es_snapshot_policy'].invoke(es_user)
 end
 
 
@@ -1041,23 +1506,9 @@ task :sync_objects, [ :aws_profile ] do |t, args |
   thumb_images_dir = dev_config[:thumb_images_dir]
   small_images_dir = dev_config[:small_images_dir]
 
-  # Get the remove objects URL from the production configuration.
+  # Parse the S3 components from the remove_objects_url.
   s3_url = load_config(:PRODUCTION_PREVIEW)[:remote_objects_url]
-
-  # Derive the S3 endpoint from the URL, with the expectation that it has the
-  # format: <protocol>://<bucket-name>.<region>.cdn.digitaloceanspaces.com[/<prefix>]
-  # where the endpoint will be: <region>.digitaloceanspaces.com
-  REGEX = /^https?:\/\/(?<bucket>[^\.]+)\.(?<region>\w+)(?:\.cdn)?\.digitaloceanspaces\.com(?:\/(?<prefix>.+))?$/
-  match = REGEX.match s3_url
-  if !match
-    puts "digital-objects URL \"#{s3_url}\" does not match the expected "\
-         "pattern: \"#{REGEX}\""
-    next
-  end
-  bucket = match[:bucket]
-  region = match[:region]
-  prefix = match[:prefix]
-  endpoint = "https://#{region}.digitaloceanspaces.com"
+  bucket, region, prefix, endpoint = parse_digitalocean_space_url s3_url
 
   # Create the S3 client.
   credentials = Aws::SharedCredentials.new(profile_name: args.aws_profile)
