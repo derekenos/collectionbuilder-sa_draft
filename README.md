@@ -370,7 +370,7 @@ This section will describe how to get Elasticsearch up and running on a Digital 
 
     ![Screenshot from 2020-07-13 12-05-32](https://user-images.githubusercontent.com/585182/87326758-2c792f00-c501-11ea-9a82-45977a8c7582.png)
 
-    - The `HTTP TCP 80` rule allows the `certbot` SSL certificate application that we'll soon run to verify that we own this machine. We'll delete this rule after the certificate process is complete.
+    - The `HTTP TCP 80` rule allows the `certbot` SSL certificate application that we'll soon run to verify that we own this machine.
 
     - The `Custom TCP 9200` rule enables external access to the Elasticsearch instance.
 
@@ -411,19 +411,9 @@ This section will describe how to get Elasticsearch up and running on a Digital 
     ![Screenshot from 2020-07-16 16-21-18](https://user-images.githubusercontent.com/585182/87718795-6ad05180-c780-11ea-909e-87f5f6c9ef21.png)
     
     It's reporting a `security_exception` because the server is configured to prevent anonymous, public users from accessing things they shouldn't. You'll see a more friendly response at: `https://<the-root/sub-domain-you-created>:9200/_search`
-    
-
-6. Delete the HTTP ingress firewall rule
-
-    The HTTP firewall ingress rule is only required for the initial certificate generation process and should be removed once the certificate is obtained.
-    To do this:
-
-    1. In the Digital Ocean UI, natigate to `Networking -> Firewalls`
-    2. Click on the firewall that you created
-    3. Next to the `HTTP` entry in `Inbound Rules`, click `More` and then `Delete Rule`
-
-
-7. Generate your Elasticsearch passwords
+  
+  
+6. Generate your Elasticsearch passwords
 
     In order to securely administer your Elasticsearch server, you'll need to generate passwords for the built-in Elasticsearch users.
 
@@ -443,7 +433,7 @@ This section will describe how to get Elasticsearch up and running on a Digital 
     The script will display the name and newly-generated password for each of the built-in Elasticsearch users - copy these down and save them in a safe place. You will be using the `elastic` user credentials to later administer the server. See: [Creating Your Local Elasticsearch Credentials File](#creating-your-local-elasticsearch-credentials-file)
 
 
-8. Change the `ubuntu` user password
+7. Change the `ubuntu` user password
 
     Every droplet that someone creates from the provided custom disk image is going to have the same default `ubuntu` user password of `password`. For better security, you should change this to your own, unique password.
 
