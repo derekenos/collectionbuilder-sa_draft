@@ -1,6 +1,6 @@
 
 # site domain
-url: http://opendata-cityofbeacon.s3-website-us-east-1.amazonaws.com
+url: http://opendata-cityofbeacon.derekenos.com
 
 # url to production objects store
 digital-objects: https://datapuddle.nyc3.cdn.digitaloceanspaces.com/cityofbeacon
